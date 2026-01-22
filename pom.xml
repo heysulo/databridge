@@ -17,6 +17,7 @@
 
     <modules>
         <module>databridge-core</module>
+        <module>databridge-examples</module>
     </modules>
 
     <dependencyManagement>
