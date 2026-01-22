@@ -73,7 +73,7 @@ public class BasicServerTest {
         client.send(message);
         Thread.sleep(100);
         Assert.assertEquals(serverCallback.messageReceived.size(), 1);
-        Assert.assertEquals(message.message, ((TestMessage)serverCallback.messageReceived.get(0)).message);
+        Assert.assertEquals(message.message, ((TestMessage) serverCallback.messageReceived.get(0)).message);
         client.disconnect();
     }
 
@@ -91,7 +91,7 @@ public class BasicServerTest {
         serverSideClient.send(message);
         Thread.sleep(100);
         Assert.assertEquals(clientCallback.messageReceived.size(), 1);
-        Assert.assertEquals(message.message, ((TestMessage)clientCallback.messageReceived.get(0)).message);
+        Assert.assertEquals(message.message, ((TestMessage) clientCallback.messageReceived.get(0)).message);
         client.disconnect();
     }
 
@@ -107,7 +107,7 @@ public class BasicServerTest {
         for (int i = 0; i < 1000; i++) {
             TestMessage message = new TestMessage(UUID.randomUUID().toString());
             client.send(message);
-//            Thread.sleep(1); // Should be okay in 2 machines
+            // Thread.sleep(1); // Should be okay in 2 machines
         }
         client.disconnect();
         Thread.sleep(1000);
@@ -163,5 +163,30 @@ public class BasicServerTest {
         Thread.sleep(100);
         Assert.assertTrue(serverCallback.disconnected);
         Assert.assertTrue(clientCallback.disconnected);
+    }
+
+    @Test
+    void testLatencyMeasurement() throws InterruptedException {
+        // Client Setup
+        server.setHeartbeatInterval(1); // Fast heartbeats for testing
+        TestClientCallback clientCallback = new TestClientCallback();
+        Client client = new Client(SERVER_ADDRESS, SERVER_PORT, clientCallback);
+        client.setHeartbeatInterval(1);
+        client.connect();
+
+        // Wait for at least one heartbeat cycle (ping + pong)
+        // Interval is 1s, so wait ~3s to be sure
+        Thread.sleep(3500);
+
+        long serverLatency = server.getLatency();
+        long clientLatency = client.getLatency();
+
+        System.out.println("Server Latency: " + serverLatency + "ms");
+        System.out.println("Client Latency: " + clientLatency + "ms");
+
+        Assert.assertTrue(serverLatency >= 0, "Server latency should be measured");
+        Assert.assertTrue(clientLatency >= 0, "Client latency should be measured");
+
+        client.disconnect();
     }
 }

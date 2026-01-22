@@ -36,14 +36,18 @@ public class StandardChannelInitializer extends ChannelInitializer<SocketChannel
     @Override
     protected void initChannel(SocketChannel channel) {
         if (useSsl && client == null) {
-            channel.pipeline().addFirst("ssl", ((SecureServer)server).getSslContext().newHandler(channel.alloc()));
+            channel.pipeline().addFirst("ssl", server.getSslContext().newHandler(channel.alloc()));
         } else if (useSsl) {
             channel.pipeline().addFirst("ssl", client.getSslContext().newHandler(channel.alloc()));
         }
+        java.util.List<String> trustedPackages = server != null ? server.getTrustedPackages()
+                : client.getTrustedPackages();
+        int hbInterval = server != null ? server.getHeartbeatInterval() : client.getHeartbeatInterval();
+        channel.pipeline().addLast("idleStateHandler",
+                new io.netty.handler.timeout.IdleStateHandler(hbInterval * 2, hbInterval, 0));
         channel.pipeline().addLast(
-                new MessageDecoder(),
+                new MessageDecoder(trustedPackages),
                 new MessageEncoder(),
-                server != null ? new ServerInboundHandler(server) : new ClientInboundHandler(client)
-        );
+                server != null ? new ServerInboundHandler(server) : new ClientInboundHandler(client));
     }
 }

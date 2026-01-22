@@ -22,24 +22,26 @@ public class SecureServerTest {
     private static SecureServer server;
     private static final TestServerCallback serverCallback = new TestServerCallback();
 
-
     @Test
     void testSecureServer() throws Exception {
-        server = new SecureServer(SERVER_PORT, serverCallback,  getServerSslContext());
+        server = new SecureServer(SERVER_PORT, serverCallback, getServerSslContext());
+        server.addTrustedPackage("dev.heysulo.**");
+        server.addTrustedPackage("java.lang.**");
         server.start();
 
         // Client Setup
         TestClientCallback clientCallback = new TestClientCallback();
         Client client = new Client(SERVER_ADDRESS, SERVER_PORT, getClientSslContext(), clientCallback);
         client.connect();
-        Thread.sleep(100);
+        Thread.sleep(1000);
 
         // Send Message
         BasicServerTest.TestMessage message = new BasicServerTest.TestMessage(UUID.randomUUID().toString());
         client.send(message);
         Thread.sleep(100);
         Assert.assertEquals(serverCallback.messageReceived.size(), 1);
-        Assert.assertEquals(message.message, ((BasicServerTest.TestMessage)serverCallback.messageReceived.get(0)).message);
+        Assert.assertEquals(message.message,
+                ((BasicServerTest.TestMessage) serverCallback.messageReceived.get(0)).message);
         client.disconnect();
         server.stop();
     }
@@ -51,6 +53,6 @@ public class SecureServerTest {
     }
 
     public static SslContext getClientSslContext() throws Exception {
-        return SslContextBuilder.forClient().trustManager(InsecureTrustManagerFactory.INSTANCE) .build();
+        return SslContextBuilder.forClient().trustManager(InsecureTrustManagerFactory.INSTANCE).build();
     }
 }

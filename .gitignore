@@ -3,11 +3,23 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+### Logs ###
+*.log
+test_output.txt
+
+### Jacoco ###
+jacoco.exec
+*.exec
+
+### Maven ###
+dependency-reduced-pom.xml
+
 ### IntelliJ IDEA ###
 .idea/modules.xml
 .idea/jarRepositories.xml
 .idea/compiler.xml
 .idea/libraries/
+.idea/
 *.iws
 *.iml
 *.ipr

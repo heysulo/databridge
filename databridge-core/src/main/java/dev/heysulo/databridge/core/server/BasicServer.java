@@ -2,12 +2,8 @@ package dev.heysulo.databridge.core.server;
 
 import dev.heysulo.databridge.core.common.StandardChannelInitializer;
 import dev.heysulo.databridge.core.server.callback.ServerCallback;
-import dev.heysulo.databridge.core.server.Server;
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
 
 public class BasicServer extends Server {
     public BasicServer(int port, ServerCallback callback) {

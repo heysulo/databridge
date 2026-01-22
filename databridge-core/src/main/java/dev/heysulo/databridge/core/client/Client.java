@@ -8,15 +8,10 @@ import dev.heysulo.databridge.core.exception.ConnectionUnavailableException;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.ssl.SslContext;
-import io.netty.handler.ssl.SslHandler;
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.GenericFutureListener;
-
 import java.net.InetSocketAddress;
 
 public class Client {
@@ -26,6 +21,29 @@ public class Client {
     protected final EventLoopGroup workerGroup;
     protected ChannelHandlerContext channelHandlerContext;
     protected final SslContext sslContext;
+    protected final java.util.List<String> trustedPackages = new java.util.ArrayList<>();
+    protected final java.util.concurrent.ExecutorService workerPool = java.util.concurrent.Executors
+            .newCachedThreadPool();
+    protected volatile long activeLatency = -1;
+
+    public long getLatency() {
+        return activeLatency;
+    }
+
+    public void updateLatency(long latency) {
+        this.activeLatency = latency;
+    }
+
+    // Config
+    protected int heartbeatInterval = 30;
+
+    public void setHeartbeatInterval(int seconds) {
+        this.heartbeatInterval = seconds;
+    }
+
+    public int getHeartbeatInterval() {
+        return this.heartbeatInterval;
+    }
 
     public Client(String remoteAddress, int remotePort, ClientCallback callback) {
         this(remoteAddress, remotePort, null, null, callback);
@@ -35,16 +53,34 @@ public class Client {
         this(remoteAddress, remotePort, null, sslContext, callback);
     }
 
-    public Client(String remoteAddress, int remotePort, EventLoopGroup workerGroup, SslContext sslContext, ClientCallback callback) {
+    public Client(String remoteAddress, int remotePort, EventLoopGroup workerGroup, SslContext sslContext,
+            ClientCallback callback) {
         this.remoteAddress = remoteAddress;
         this.remotePort = remotePort;
         this.workerGroup = workerGroup == null ? new NioEventLoopGroup() : workerGroup;
         this.callback = callback;
         this.sslContext = sslContext;
+        // Default allowed packages
+        this.trustedPackages.add("dev.heysulo.**");
+        this.trustedPackages.add("java.util.**");
+        this.trustedPackages.add("java.lang.**");
+    }
+
+    public void addTrustedPackage(String packagePattern) {
+        this.trustedPackages.add(packagePattern);
+    }
+
+    public java.util.List<String> getTrustedPackages() {
+        return trustedPackages;
+    }
+
+    public java.util.concurrent.ExecutorService getWorkerPool() {
+        return workerPool;
     }
 
     public Client(ChannelHandlerContext channelHandlerContext) {
-        this.remoteAddress = ((InetSocketAddress) channelHandlerContext.channel().remoteAddress()).getAddress().getHostAddress();
+        this.remoteAddress = ((InetSocketAddress) channelHandlerContext.channel().remoteAddress()).getAddress()
+                .getHostAddress();
         this.remotePort = ((InetSocketAddress) channelHandlerContext.channel().remoteAddress()).getPort();
         this.callback = null;
         this.workerGroup = null;
@@ -55,14 +91,13 @@ public class Client {
     public void connect() throws InterruptedException {
         Bootstrap bootstrap = new Bootstrap();
         Channel channel = bootstrap
-                .option(ChannelOption.SO_SNDBUF, 1000 * 1024 * 1024) // TODO: Configure
-                .option(ChannelOption.SO_RCVBUF, 1000 * 1024 * 1024)
                 .group(workerGroup)
                 .channel(NioSocketChannel.class)
                 .handler(new StandardChannelInitializer(this))
                 .connect(remoteAddress, remotePort)
                 .sync()
                 .channel();
+        this.channelHandlerContext = channel.pipeline().context(ClientInboundHandler.class);
     }
 
     public void send(Message message) {
@@ -76,7 +111,9 @@ public class Client {
     }
 
     public void disconnect() throws InterruptedException {
-        channelHandlerContext.close().sync();
+        if (channelHandlerContext != null) {
+            channelHandlerContext.close().sync();
+        }
     }
 
     public ClientCallback getCallback() {

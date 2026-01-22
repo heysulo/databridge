@@ -11,8 +11,11 @@ public class TestServerCallback implements ServerCallback {
     public boolean connected = false;
     public boolean disconnected = false;
     public boolean errorReceived = false;
-    public ArrayList<Message> messageReceived = new ArrayList<>();
-    public ArrayList<Client> connectedClients = new ArrayList<>();
+    public Throwable exceptionCaught;
+    public java.util.List<Message> messageReceived = java.util.Collections
+            .synchronizedList(new java.util.ArrayList<>());
+    public java.util.List<Client> connectedClients = java.util.Collections
+            .synchronizedList(new java.util.ArrayList<>());
 
     @Override
     public void OnConnect(Server server, Client client) {
@@ -33,6 +36,7 @@ public class TestServerCallback implements ServerCallback {
     @Override
     public void OnError(Server server, Client client, Throwable cause) {
         errorReceived = true;
+        exceptionCaught = cause;
     }
 
     public void reset() {

@@ -13,23 +13,53 @@ public class ClientInboundHandler extends ChannelInboundHandlerAdapter {
     }
 
     @Override
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        if (evt instanceof io.netty.handler.timeout.IdleStateEvent) {
+            ctx.writeAndFlush(new dev.heysulo.databridge.core.common.HeartbeatMessage(System.nanoTime(), false));
+        } else {
+            super.userEventTriggered(ctx, evt);
+        }
+    }
+
+    @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        this.client.getCallback().OnMessage(client, (Message) msg);
+        if (msg instanceof dev.heysulo.databridge.core.common.HeartbeatMessage) {
+            dev.heysulo.databridge.core.common.HeartbeatMessage hb = (dev.heysulo.databridge.core.common.HeartbeatMessage) msg;
+            if (hb.isReply) {
+                long rtt = System.nanoTime() - hb.timestamp;
+                client.updateLatency(rtt / 1_000_000); // Convert to ms
+            } else {
+                ctx.writeAndFlush(new dev.heysulo.databridge.core.common.HeartbeatMessage(hb.timestamp, true));
+            }
+            return;
+        }
+
+        client.getWorkerPool().execute(() -> {
+            try {
+                this.client.getCallback().OnMessage(client, (Message) msg);
+            } catch (Exception e) {
+                this.client.getCallback().OnError(client, e);
+            }
+        });
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        this.client.getCallback().OnError(client, cause);
+        client.getWorkerPool().execute(() -> this.client.getCallback().OnError(client, cause));
     }
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) {
         this.client.channelHandlerContext = ctx;
-        this.client.getCallback().OnConnect(client);
+        // Send Handshake
+        ctx.writeAndFlush(
+                new dev.heysulo.databridge.core.common.HandshakeMessage("Client-" + java.util.UUID.randomUUID()));
+
+        client.getWorkerPool().execute(() -> this.client.getCallback().OnConnect(client));
     }
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        this.client.getCallback().OnDisconnect(client);
+        client.getWorkerPool().execute(() -> this.client.getCallback().OnDisconnect(client));
     }
 }

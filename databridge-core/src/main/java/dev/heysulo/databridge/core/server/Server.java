@@ -1,15 +1,14 @@
 package dev.heysulo.databridge.core.server;
 
-import dev.heysulo.databridge.core.common.StandardChannelInitializer;
 import dev.heysulo.databridge.core.server.callback.ServerCallback;
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.ServerSocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.netty.handler.ssl.SslContext;
 
 public abstract class Server {
     protected final int port;
@@ -32,7 +31,72 @@ public abstract class Server {
         this.port = port;
         this.callback = callback;
         this.bossGroup = bossGroup == null ? new NioEventLoopGroup() : bossGroup;
+
         this.workerGroup = workerGroup == null ? new NioEventLoopGroup() : workerGroup;
+        // Default allowed packages
+        this.trustedPackages.add("dev.heysulo.**");
+        this.trustedPackages.add("java.util.**");
+        this.trustedPackages.add("java.lang.**");
+    }
+
+    protected final java.util.List<String> trustedPackages = new java.util.ArrayList<>();
+    protected final java.util.concurrent.ExecutorService workerPool = java.util.concurrent.Executors
+            .newCachedThreadPool();
+
+    // Metrics
+    protected final java.util.concurrent.atomic.AtomicLong activeConnections = new java.util.concurrent.atomic.AtomicLong();
+    protected final java.util.concurrent.atomic.AtomicLong totalMessages = new java.util.concurrent.atomic.AtomicLong();
+    protected volatile long activeLatency = -1; // -1 means unknown
+
+    public long getLatency() {
+        return activeLatency;
+    }
+
+    public void updateLatency(long latency) {
+        this.activeLatency = latency;
+    }
+
+    // Config
+    protected int heartbeatInterval = 30;
+
+    public void setHeartbeatInterval(int seconds) {
+        this.heartbeatInterval = seconds;
+    }
+
+    public int getHeartbeatInterval() {
+        return this.heartbeatInterval;
+    }
+
+    public void addTrustedPackage(String packagePattern) {
+        this.trustedPackages.add(packagePattern);
+    }
+
+    public java.util.List<String> getTrustedPackages() {
+        return trustedPackages;
+    }
+
+    public java.util.concurrent.ExecutorService getWorkerPool() {
+        return workerPool;
+    }
+
+    public long getActiveConnections() {
+        return activeConnections.get();
+    }
+
+    public long getTotalMessages() {
+        return totalMessages.get();
+    }
+
+    public void incrementConnections() {
+        activeConnections.incrementAndGet();
+    }
+
+    public void decrementConnections() {
+        activeConnections.decrementAndGet();
+    }
+
+    public void incrementMessages() {
+        totalMessages.incrementAndGet();
     }
 
     private boolean validatePort(int port) {
@@ -53,8 +117,6 @@ public abstract class Server {
                 .group(bossGroup, workerGroup)
                 .handler(new LoggingHandler(LogLevel.INFO)) // TODO: Make it configurable
                 .childOption(io.netty.channel.ChannelOption.SO_KEEPALIVE, true)
-                .option(ChannelOption.SO_SNDBUF, 1000 * 1024 * 1024) // TODO: Configure
-                .option(ChannelOption.SO_RCVBUF, 1000 * 1024 * 1024)
                 .bind(port)
                 .sync();
     }
@@ -66,5 +128,9 @@ public abstract class Server {
 
     protected ServerCallback getCallback() {
         return callback;
+    }
+
+    public SslContext getSslContext() {
+        return null; // Default implementation returns null
     }
 }
