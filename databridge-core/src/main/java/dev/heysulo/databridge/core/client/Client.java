@@ -17,9 +17,9 @@ import java.net.InetSocketAddress;
 public class Client {
     protected final String remoteAddress;
     protected final int remotePort;
-    protected final ClientCallback callback;
+    protected ClientCallback callback;
     protected final EventLoopGroup workerGroup;
-    protected ChannelHandlerContext channelHandlerContext;
+    protected volatile ChannelHandlerContext channelHandlerContext;
     protected final SslContext sslContext;
     protected final java.util.List<String> trustedPackages = new java.util.ArrayList<>();
     protected final java.util.concurrent.ExecutorService workerPool = java.util.concurrent.Executors
@@ -49,6 +49,10 @@ public class Client {
         this(remoteAddress, remotePort, null, null, callback);
     }
 
+    public Client(String remoteAddress, int remotePort, ClientCallback callback, EventLoopGroup workerGroup) {
+        this(remoteAddress, remotePort, workerGroup, null, callback);
+    }
+
     public Client(String remoteAddress, int remotePort, SslContext sslContext, ClientCallback callback) {
         this(remoteAddress, remotePort, null, sslContext, callback);
     }
@@ -62,8 +66,7 @@ public class Client {
         this.sslContext = sslContext;
         // Default allowed packages
         this.trustedPackages.add("dev.heysulo.**");
-        this.trustedPackages.add("java.util.**");
-        this.trustedPackages.add("java.lang.**");
+        this.trustedPackages.add("java.**");
     }
 
     public void addTrustedPackage(String packagePattern) {
@@ -122,5 +125,17 @@ public class Client {
 
     public SslContext getSslContext() {
         return sslContext;
+    }
+
+    public String getRemoteAddress() {
+        return remoteAddress;
+    }
+
+    public int getRemotePort() {
+        return remotePort;
+    }
+
+    public void setCallback(ClientCallback callback) {
+        this.callback = callback;
     }
 }

@@ -35,8 +35,7 @@ public abstract class Server {
         this.workerGroup = workerGroup == null ? new NioEventLoopGroup() : workerGroup;
         // Default allowed packages
         this.trustedPackages.add("dev.heysulo.**");
-        this.trustedPackages.add("java.util.**");
-        this.trustedPackages.add("java.lang.**");
+        this.trustedPackages.add("java.**");
     }
 
     protected final java.util.List<String> trustedPackages = new java.util.ArrayList<>();
@@ -99,7 +98,7 @@ public abstract class Server {
         totalMessages.incrementAndGet();
     }
 
-    private boolean validatePort(int port) {
+    public boolean validatePort(int port) {
         return port > 0 && port < 65535;
     }
 
