@@ -5,8 +5,6 @@ import dev.heysulo.databridge.core.common.Message;
 import dev.heysulo.databridge.core.server.Server;
 import dev.heysulo.databridge.core.server.callback.ServerCallback;
 
-import java.util.ArrayList;
-
 public class TestServerCallback implements ServerCallback {
     public boolean connected = false;
     public boolean disconnected = false;
