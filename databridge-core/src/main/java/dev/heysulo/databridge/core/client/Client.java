@@ -19,33 +19,16 @@ import java.net.InetSocketAddress;
 public class Client {
     protected final String remoteAddress;
     protected final int remotePort;
-    protected ClientCallback callback;
     protected final EventLoopGroup workerGroup;
-    protected volatile ChannelHandlerContext channelHandlerContext;
     protected final SslContext sslContext;
     protected final java.util.List<String> trustedPackages = new java.util.ArrayList<>();
     protected final java.util.concurrent.ExecutorService workerPool = java.util.concurrent.Executors
             .newCachedThreadPool();
+    protected ClientCallback callback;
+    protected volatile ChannelHandlerContext channelHandlerContext;
     protected volatile long activeLatency = -1;
-
-    public long getLatency() {
-        return activeLatency;
-    }
-
-    public void updateLatency(long latency) {
-        this.activeLatency = latency;
-    }
-
     // Config
     protected int heartbeatInterval = 30;
-
-    public void setHeartbeatInterval(int seconds) {
-        this.heartbeatInterval = seconds;
-    }
-
-    public int getHeartbeatInterval() {
-        return this.heartbeatInterval;
-    }
 
     public Client(String remoteAddress, int remotePort, ClientCallback callback) {
         this(remoteAddress, remotePort, null, null, callback);
@@ -60,7 +43,7 @@ public class Client {
     }
 
     public Client(String remoteAddress, int remotePort, EventLoopGroup workerGroup, SslContext sslContext,
-            ClientCallback callback) {
+                  ClientCallback callback) {
         this.remoteAddress = remoteAddress;
         this.remotePort = remotePort;
         this.workerGroup = workerGroup == null ? new NioEventLoopGroup(new DefaultThreadFactory("unnamed-client-worker-group")) : workerGroup;
@@ -69,6 +52,32 @@ public class Client {
         // Default allowed packages
         this.trustedPackages.add("dev.heysulo.**");
         this.trustedPackages.add("java.**");
+    }
+
+    public Client(ChannelHandlerContext channelHandlerContext) {
+        this.remoteAddress = ((InetSocketAddress) channelHandlerContext.channel().remoteAddress()).getAddress()
+                .getHostAddress();
+        this.remotePort = ((InetSocketAddress) channelHandlerContext.channel().remoteAddress()).getPort();
+        this.callback = null;
+        this.workerGroup = null;
+        this.channelHandlerContext = channelHandlerContext;
+        this.sslContext = null; // check
+    }
+
+    public long getLatency() {
+        return activeLatency;
+    }
+
+    public void updateLatency(long latency) {
+        this.activeLatency = latency;
+    }
+
+    public int getHeartbeatInterval() {
+        return this.heartbeatInterval;
+    }
+
+    public void setHeartbeatInterval(int seconds) {
+        this.heartbeatInterval = seconds;
     }
 
     public void addTrustedPackage(String packagePattern) {
@@ -81,16 +90,6 @@ public class Client {
 
     public java.util.concurrent.ExecutorService getWorkerPool() {
         return workerPool;
-    }
-
-    public Client(ChannelHandlerContext channelHandlerContext) {
-        this.remoteAddress = ((InetSocketAddress) channelHandlerContext.channel().remoteAddress()).getAddress()
-                .getHostAddress();
-        this.remotePort = ((InetSocketAddress) channelHandlerContext.channel().remoteAddress()).getPort();
-        this.callback = null;
-        this.workerGroup = null;
-        this.channelHandlerContext = channelHandlerContext;
-        this.sslContext = null; // check
     }
 
     public void connect() throws InterruptedException {
@@ -125,6 +124,10 @@ public class Client {
         return callback;
     }
 
+    public void setCallback(ClientCallback callback) {
+        this.callback = callback;
+    }
+
     public SslContext getSslContext() {
         return sslContext;
     }
@@ -135,9 +138,5 @@ public class Client {
 
     public int getRemotePort() {
         return remotePort;
-    }
-
-    public void setCallback(ClientCallback callback) {
-        this.callback = callback;
     }
 }

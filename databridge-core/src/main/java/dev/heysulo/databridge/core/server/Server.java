@@ -16,8 +16,14 @@ public abstract class Server {
     protected final ServerCallback callback;
     protected final EventLoopGroup bossGroup;
     protected final EventLoopGroup workerGroup;
+    protected final java.util.List<String> trustedPackages = new java.util.ArrayList<>();
+    // Metrics
+    protected final java.util.concurrent.atomic.AtomicLong activeConnections = new java.util.concurrent.atomic.AtomicLong();
+    protected final java.util.concurrent.atomic.AtomicLong totalMessages = new java.util.concurrent.atomic.AtomicLong();
     protected Class<? extends ServerSocketChannel> serverChannel = NioServerSocketChannel.class;
-
+    protected volatile long activeLatency = -1; // -1 means unknown
+    // Config
+    protected int heartbeatInterval = 30;
     public Server(int port, ServerCallback callback) {
         this(port, callback, null, null);
     }
@@ -43,13 +49,6 @@ public abstract class Server {
         this.trustedPackages.add("java.**");
     }
 
-    protected final java.util.List<String> trustedPackages = new java.util.ArrayList<>();
-
-    // Metrics
-    protected final java.util.concurrent.atomic.AtomicLong activeConnections = new java.util.concurrent.atomic.AtomicLong();
-    protected final java.util.concurrent.atomic.AtomicLong totalMessages = new java.util.concurrent.atomic.AtomicLong();
-    protected volatile long activeLatency = -1; // -1 means unknown
-
     public long getLatency() {
         return activeLatency;
     }
@@ -58,15 +57,12 @@ public abstract class Server {
         this.activeLatency = latency;
     }
 
-    // Config
-    protected int heartbeatInterval = 30;
+    public int getHeartbeatInterval() {
+        return this.heartbeatInterval;
+    }
 
     public void setHeartbeatInterval(int seconds) {
         this.heartbeatInterval = seconds;
-    }
-
-    public int getHeartbeatInterval() {
-        return this.heartbeatInterval;
     }
 
     public void addTrustedPackage(String packagePattern) {

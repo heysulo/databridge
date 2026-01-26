@@ -2,9 +2,9 @@ package dev.heysulo.databridge.core.common;
 
 import dev.heysulo.databridge.core.client.Client;
 import dev.heysulo.databridge.core.client.ClientInboundHandler;
+import dev.heysulo.databridge.core.server.BasicServer;
 import dev.heysulo.databridge.core.server.Server;
 import dev.heysulo.databridge.core.server.ServerInboundHandler;
-import dev.heysulo.databridge.core.server.BasicServer;
 import dev.heysulo.databridge.core.server.secure.SecureServer;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.socket.SocketChannel;

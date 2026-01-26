@@ -1,8 +1,8 @@
 package dev.heysulo.databridge.core.client;
 
 import dev.heysulo.databridge.core.common.Message;
-import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 
 public class ClientInboundHandler extends ChannelInboundHandlerAdapter {
     private final Client client;
