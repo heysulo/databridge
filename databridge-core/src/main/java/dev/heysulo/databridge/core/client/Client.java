@@ -22,8 +22,6 @@ public class Client {
     protected final EventLoopGroup workerGroup;
     protected final SslContext sslContext;
     protected final java.util.List<String> trustedPackages = new java.util.ArrayList<>();
-    protected final java.util.concurrent.ExecutorService workerPool = java.util.concurrent.Executors
-            .newCachedThreadPool();
     protected ClientCallback callback;
     protected volatile ChannelHandlerContext channelHandlerContext;
     protected volatile long activeLatency = -1;
@@ -86,10 +84,6 @@ public class Client {
 
     public java.util.List<String> getTrustedPackages() {
         return trustedPackages;
-    }
-
-    public java.util.concurrent.ExecutorService getWorkerPool() {
-        return workerPool;
     }
 
     public void connect() throws InterruptedException {

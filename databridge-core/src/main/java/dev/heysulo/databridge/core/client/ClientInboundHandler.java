@@ -34,18 +34,12 @@ public class ClientInboundHandler extends ChannelInboundHandlerAdapter {
             return;
         }
 
-        client.getWorkerPool().execute(() -> {
-            try {
-                this.client.getCallback().OnMessage(client, (Message) msg);
-            } catch (Exception e) {
-                this.client.getCallback().OnError(client, e);
-            }
-        });
+        this.client.getCallback().OnMessage(client, (Message) msg);
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        client.getWorkerPool().execute(() -> this.client.getCallback().OnError(client, cause));
+        this.client.getCallback().OnError(client, cause);
     }
 
     @Override
@@ -55,11 +49,11 @@ public class ClientInboundHandler extends ChannelInboundHandlerAdapter {
         ctx.writeAndFlush(
                 new dev.heysulo.databridge.core.common.HandshakeMessage("Client-" + java.util.UUID.randomUUID()));
 
-        client.getWorkerPool().execute(() -> this.client.getCallback().OnConnect(client));
+        this.client.getCallback().OnConnect(client);
     }
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        client.getWorkerPool().execute(() -> this.client.getCallback().OnDisconnect(client));
+        this.client.getCallback().OnDisconnect(client);
     }
 }

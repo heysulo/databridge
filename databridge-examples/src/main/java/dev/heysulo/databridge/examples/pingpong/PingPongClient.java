@@ -53,9 +53,7 @@ public class PingPongClient implements Runnable, ClientCallback {
             // Schedule next ping
             try {
                 Thread.sleep(1000 + new Random().nextInt(1000));
-                if (client.getWorkerPool() != null && !client.getWorkerPool().isShutdown()) {
-                    client.send(new PingMessage());
-                }
+                client.send(new PingMessage());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
