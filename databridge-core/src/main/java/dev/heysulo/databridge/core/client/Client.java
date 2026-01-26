@@ -12,6 +12,8 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.ssl.SslContext;
+import io.netty.util.concurrent.DefaultThreadFactory;
+
 import java.net.InetSocketAddress;
 
 public class Client {
@@ -61,7 +63,7 @@ public class Client {
             ClientCallback callback) {
         this.remoteAddress = remoteAddress;
         this.remotePort = remotePort;
-        this.workerGroup = workerGroup == null ? new NioEventLoopGroup() : workerGroup;
+        this.workerGroup = workerGroup == null ? new NioEventLoopGroup(new DefaultThreadFactory("unnamed-client-worker-group")) : workerGroup;
         this.callback = callback;
         this.sslContext = sslContext;
         // Default allowed packages

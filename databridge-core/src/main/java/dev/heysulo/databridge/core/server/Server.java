@@ -9,6 +9,7 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
+import io.netty.util.concurrent.DefaultThreadFactory;
 
 public abstract class Server {
     protected final int port;
@@ -30,17 +31,19 @@ public abstract class Server {
         }
         this.port = port;
         this.callback = callback;
-        this.bossGroup = bossGroup == null ? new NioEventLoopGroup() : bossGroup;
+        this.bossGroup = bossGroup == null
+                ? new NioEventLoopGroup(new DefaultThreadFactory("unnamed-server-boss-group"))
+                : bossGroup;
 
-        this.workerGroup = workerGroup == null ? new NioEventLoopGroup() : workerGroup;
+        this.workerGroup = workerGroup == null
+                ? new NioEventLoopGroup(new DefaultThreadFactory("unnamed-server-client-worker-group"))
+                : workerGroup;
         // Default allowed packages
         this.trustedPackages.add("dev.heysulo.**");
         this.trustedPackages.add("java.**");
     }
 
     protected final java.util.List<String> trustedPackages = new java.util.ArrayList<>();
-    protected final java.util.concurrent.ExecutorService workerPool = java.util.concurrent.Executors
-            .newCachedThreadPool();
 
     // Metrics
     protected final java.util.concurrent.atomic.AtomicLong activeConnections = new java.util.concurrent.atomic.AtomicLong();
@@ -72,10 +75,6 @@ public abstract class Server {
 
     public java.util.List<String> getTrustedPackages() {
         return trustedPackages;
-    }
-
-    public java.util.concurrent.ExecutorService getWorkerPool() {
-        return workerPool;
     }
 
     public long getActiveConnections() {

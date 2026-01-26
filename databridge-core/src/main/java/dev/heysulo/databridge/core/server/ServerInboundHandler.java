@@ -26,7 +26,7 @@ public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
     }
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    public void channelRead(ChannelHandlerContext ctx, Object msg) {
         if (msg instanceof dev.heysulo.databridge.core.common.HeartbeatMessage) {
             dev.heysulo.databridge.core.common.HeartbeatMessage hb = (dev.heysulo.databridge.core.common.HeartbeatMessage) msg;
             if (hb.isReply) {
@@ -54,19 +54,13 @@ public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
         }
 
         server.incrementMessages();
-        server.getWorkerPool().execute(() -> {
-            try {
-                server.getCallback().OnMessage(server, remoteClient, (Message) msg);
-            } catch (Exception e) {
-                server.getCallback().OnError(server, remoteClient, e);
-            }
-        });
+        server.getCallback().OnMessage(server, remoteClient, (Message) msg);
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         if (remoteClient != null) {
-            server.getWorkerPool().execute(() -> server.getCallback().OnError(server, remoteClient, cause));
+            server.getCallback().OnError(server, remoteClient, cause);
         }
     }
 
@@ -75,14 +69,14 @@ public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
         server.incrementConnections();
         this.remoteClient = new RemoteClient(ctx);
         // Handshake: Wait for client to send HandshakeMessage
-        server.getWorkerPool().execute(() -> server.getCallback().OnConnect(server, remoteClient));
+        server.getCallback().OnConnect(server, remoteClient);
     }
 
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) {
         server.decrementConnections();
         if (remoteClient != null) {
-            server.getWorkerPool().execute(() -> server.getCallback().OnDisconnect(server, remoteClient));
+            server.getCallback().OnDisconnect(server, remoteClient);
         }
     }
 }
