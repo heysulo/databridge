@@ -108,6 +108,10 @@ public class Client {
         channelHandlerContext.writeAndFlush(message);
     }
 
+    public boolean isConnected() {
+        return channelHandlerContext != null && channelHandlerContext.channel().isActive();
+    }
+
     public void disconnect() throws InterruptedException {
         if (channelHandlerContext != null) {
             channelHandlerContext.close().sync();

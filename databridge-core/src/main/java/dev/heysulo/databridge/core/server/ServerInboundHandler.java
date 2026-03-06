@@ -54,13 +54,21 @@ public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
         }
 
         server.incrementMessages();
-        server.getCallback().OnMessage(server, remoteClient, (Message) msg);
+        if (canUseRemoteClientCallback(remoteClient)) {
+            remoteClient.getCallback().OnMessage(remoteClient, (Message) msg);
+        } else {
+            server.getCallback().OnMessage(server, remoteClient, (Message) msg);
+        }
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         if (remoteClient != null) {
-            server.getCallback().OnError(server, remoteClient, cause);
+            if (canUseRemoteClientCallback(remoteClient)) {
+                remoteClient.getCallback().OnError(remoteClient, cause);
+            } else {
+                server.getCallback().OnError(server, remoteClient, cause);
+            }
         }
     }
 
@@ -69,14 +77,26 @@ public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
         server.incrementConnections();
         this.remoteClient = new RemoteClient(ctx);
         // Handshake: Wait for client to send HandshakeMessage
-        server.getCallback().OnConnect(server, remoteClient);
+        if (canUseRemoteClientCallback(remoteClient)) {
+            remoteClient.getCallback().OnConnect(remoteClient);
+        } else {
+            server.getCallback().OnConnect(server, remoteClient);
+        }
     }
 
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) {
         server.decrementConnections();
         if (remoteClient != null) {
-            server.getCallback().OnDisconnect(server, remoteClient);
+            if (canUseRemoteClientCallback(remoteClient)) {
+                remoteClient.getCallback().OnDisconnect(remoteClient);
+            } else {
+                server.getCallback().OnDisconnect(server, remoteClient);
+            }
         }
+    }
+
+    private boolean canUseRemoteClientCallback(Client remoteClient) {
+        return remoteClient != null && remoteClient.getCallback() != null;
     }
 }

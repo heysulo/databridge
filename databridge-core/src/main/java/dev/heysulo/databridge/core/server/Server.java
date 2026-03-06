@@ -109,7 +109,7 @@ public abstract class Server {
     protected void start(ServerBootstrap bootstrap) throws InterruptedException {
         bootstrap.channel(serverChannel)
                 .group(bossGroup, workerGroup)
-                .handler(new LoggingHandler(LogLevel.INFO)) // TODO: Make it configurable
+                .handler(new LoggingHandler(LogLevel.DEBUG)) // TODO: Make it configurable
                 .childOption(io.netty.channel.ChannelOption.SO_KEEPALIVE, true)
                 .bind(port)
                 .sync();
