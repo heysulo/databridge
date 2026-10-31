@@ -2,6 +2,7 @@ package dev.heysulo.databridge.core.client;
 
 import dev.heysulo.databridge.core.client.callback.ClientCallback;
 import dev.heysulo.databridge.core.common.Message;
+import dev.heysulo.databridge.core.common.MessageDecoder;
 import dev.heysulo.databridge.core.common.StandardChannelInitializer;
 import dev.heysulo.databridge.core.exception.ConnectionBufferedException;
 import dev.heysulo.databridge.core.exception.ConnectionUnavailableException;
@@ -15,16 +16,30 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.util.concurrent.DefaultThreadFactory;
 
 import java.net.InetSocketAddress;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class Client {
+    public static final List<String> DEFAULT_TRUSTED_PACKAGES = List.of(
+            "!java.util.PriorityQueue",
+            "!java.rmi.**",
+            "!java.lang.reflect.**",
+            "!java.lang.invoke.**",
+            "dev.heysulo.**",
+            "java.lang.*",
+            "java.util.*"
+    );
+
     protected final String remoteAddress;
     protected final int remotePort;
     protected final EventLoopGroup workerGroup;
     protected final SslContext sslContext;
-    protected final java.util.List<String> trustedPackages = new java.util.ArrayList<>();
+    protected final List<String> trustedPackages = new CopyOnWriteArrayList<>(DEFAULT_TRUSTED_PACKAGES);
     protected ClientCallback callback;
     protected volatile ChannelHandlerContext channelHandlerContext;
     protected volatile long activeLatency = -1;
+    protected int maxFrameLength = MessageDecoder.DEFAULT_MAX_FRAME_LENGTH;
+
     // Config
     protected int heartbeatInterval = 30;
 
@@ -47,9 +62,6 @@ public class Client {
         this.workerGroup = workerGroup == null ? new NioEventLoopGroup(new DefaultThreadFactory("unnamed-client-worker-group")) : workerGroup;
         this.callback = callback;
         this.sslContext = sslContext;
-        // Default allowed packages
-        this.trustedPackages.add("dev.heysulo.**");
-        this.trustedPackages.add("java.**");
     }
 
     public Client(ChannelHandlerContext channelHandlerContext) {
@@ -59,7 +71,7 @@ public class Client {
         this.callback = null;
         this.workerGroup = null;
         this.channelHandlerContext = channelHandlerContext;
-        this.sslContext = null; // check
+        this.sslContext = null;
     }
 
     public long getLatency() {
@@ -82,8 +94,16 @@ public class Client {
         this.trustedPackages.add(packagePattern);
     }
 
-    public java.util.List<String> getTrustedPackages() {
+    public List<String> getTrustedPackages() {
         return trustedPackages;
+    }
+
+    public int getMaxFrameLength() {
+        return maxFrameLength;
+    }
+
+    public void setMaxFrameLength(int maxFrameLength) {
+        this.maxFrameLength = maxFrameLength;
     }
 
     public void connect() throws InterruptedException {
@@ -99,8 +119,8 @@ public class Client {
     }
 
     public void send(Message message) {
-        if (!channelHandlerContext.channel().isActive()) {
-            throw new ConnectionUnavailableException(channelHandlerContext.channel());
+        if (channelHandlerContext == null || !channelHandlerContext.channel().isActive()) {
+            throw new ConnectionUnavailableException(channelHandlerContext != null ? channelHandlerContext.channel() : null);
         }
         if (!channelHandlerContext.channel().isWritable()) {
             throw new ConnectionBufferedException();

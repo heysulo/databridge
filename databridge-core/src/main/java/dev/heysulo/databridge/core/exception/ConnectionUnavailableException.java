@@ -4,9 +4,11 @@ import io.netty.channel.Channel;
 
 public class ConnectionUnavailableException extends RuntimeException {
     public ConnectionUnavailableException(Channel channel) {
-        super(String.format("Id: %s, LocalAddress: %s, RemoteAddress: %s",
-                channel.id().asShortText(),
-                channel.localAddress(),
-                channel.remoteAddress()));
+        super(channel != null
+                ? String.format("Id: %s, LocalAddress: %s, RemoteAddress: %s",
+                        channel.id().asShortText(),
+                        channel.localAddress(),
+                        channel.remoteAddress())
+                : "Channel is unavailable (null or inactive)");
     }
 }

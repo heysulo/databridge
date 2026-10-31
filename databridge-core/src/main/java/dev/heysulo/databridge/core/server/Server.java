@@ -1,5 +1,6 @@
 package dev.heysulo.databridge.core.server;
 
+import dev.heysulo.databridge.core.common.MessageDecoder;
 import dev.heysulo.databridge.core.server.callback.ServerCallback;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.EventLoopGroup;
@@ -11,19 +12,37 @@ import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.concurrent.DefaultThreadFactory;
 
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
+
 public abstract class Server {
+    public static final List<String> DEFAULT_TRUSTED_PACKAGES = List.of(
+            "!java.util.PriorityQueue",
+            "!java.rmi.**",
+            "!java.lang.reflect.**",
+            "!java.lang.invoke.**",
+            "dev.heysulo.**",
+            "java.lang.*",
+            "java.util.*"
+    );
+
     protected final int port;
     protected final ServerCallback callback;
     protected final EventLoopGroup bossGroup;
     protected final EventLoopGroup workerGroup;
-    protected final java.util.List<String> trustedPackages = new java.util.ArrayList<>();
+    protected final List<String> trustedPackages = new CopyOnWriteArrayList<>(DEFAULT_TRUSTED_PACKAGES);
+    protected int maxFrameLength = MessageDecoder.DEFAULT_MAX_FRAME_LENGTH;
+
     // Metrics
-    protected final java.util.concurrent.atomic.AtomicLong activeConnections = new java.util.concurrent.atomic.AtomicLong();
-    protected final java.util.concurrent.atomic.AtomicLong totalMessages = new java.util.concurrent.atomic.AtomicLong();
+    protected final AtomicLong activeConnections = new AtomicLong();
+    protected final AtomicLong totalMessages = new AtomicLong();
     protected Class<? extends ServerSocketChannel> serverChannel = NioServerSocketChannel.class;
     protected volatile long activeLatency = -1; // -1 means unknown
+
     // Config
     protected int heartbeatInterval = 30;
+
     public Server(int port, ServerCallback callback) {
         this(port, callback, null, null);
     }
@@ -44,9 +63,6 @@ public abstract class Server {
         this.workerGroup = workerGroup == null
                 ? new NioEventLoopGroup(new DefaultThreadFactory("unnamed-server-client-worker-group"))
                 : workerGroup;
-        // Default allowed packages
-        this.trustedPackages.add("dev.heysulo.**");
-        this.trustedPackages.add("java.**");
     }
 
     public long getLatency() {
@@ -69,8 +85,16 @@ public abstract class Server {
         this.trustedPackages.add(packagePattern);
     }
 
-    public java.util.List<String> getTrustedPackages() {
+    public List<String> getTrustedPackages() {
         return trustedPackages;
+    }
+
+    public int getMaxFrameLength() {
+        return maxFrameLength;
+    }
+
+    public void setMaxFrameLength(int maxFrameLength) {
+        this.maxFrameLength = maxFrameLength;
     }
 
     public long getActiveConnections() {
@@ -94,7 +118,7 @@ public abstract class Server {
     }
 
     public boolean validatePort(int port) {
-        return port > 0 && port < 65535;
+        return port > 0 && port <= 65535;
     }
 
     public void setServerChannel(Class<? extends ServerSocketChannel> serverChannel) {
