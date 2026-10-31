@@ -33,6 +33,7 @@ public class Client {
     protected final String remoteAddress;
     protected final int remotePort;
     protected final EventLoopGroup workerGroup;
+    private final boolean sharedWorkerGroup;
     protected final SslContext sslContext;
     protected final List<String> trustedPackages = new CopyOnWriteArrayList<>(DEFAULT_TRUSTED_PACKAGES);
     protected ClientCallback callback;
@@ -59,7 +60,10 @@ public class Client {
                   ClientCallback callback) {
         this.remoteAddress = remoteAddress;
         this.remotePort = remotePort;
-        this.workerGroup = workerGroup == null ? new NioEventLoopGroup(new DefaultThreadFactory("unnamed-client-worker-group")) : workerGroup;
+        this.sharedWorkerGroup = workerGroup != null;
+        this.workerGroup = sharedWorkerGroup
+                ? workerGroup
+                : new NioEventLoopGroup(new DefaultThreadFactory("unnamed-client-worker-group"));
         this.callback = callback;
         this.sslContext = sslContext;
     }
@@ -69,9 +73,14 @@ public class Client {
                 .getHostAddress();
         this.remotePort = ((InetSocketAddress) channelHandlerContext.channel().remoteAddress()).getPort();
         this.callback = null;
+        this.sharedWorkerGroup = true; // Managed by server/pipeline
         this.workerGroup = null;
         this.channelHandlerContext = channelHandlerContext;
         this.sslContext = null;
+    }
+
+    public boolean isSharedWorkerGroup() {
+        return sharedWorkerGroup;
     }
 
     public long getLatency() {
@@ -135,6 +144,13 @@ public class Client {
     public void disconnect() throws InterruptedException {
         if (channelHandlerContext != null) {
             channelHandlerContext.close().sync();
+        }
+    }
+
+    public void stop() throws InterruptedException {
+        disconnect();
+        if (!sharedWorkerGroup && workerGroup != null) {
+            workerGroup.shutdownGracefully().sync();
         }
     }
 

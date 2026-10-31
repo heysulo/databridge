@@ -1,6 +1,8 @@
 package dev.heysulo.databridge.core.framing;
 
+import dev.heysulo.databridge.core.common.Message;
 import dev.heysulo.databridge.core.common.MessageDecoder;
+import dev.heysulo.databridge.core.common.MessageEncoder;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -15,6 +17,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class FramingTest {
+
+    public static class DirectStreamingMessage implements Message {
+        public String data;
+
+        public DirectStreamingMessage(String data) {
+            this.data = data;
+        }
+    }
 
     @Test
     public void testFragmentedPacket() throws Exception {
@@ -49,6 +59,26 @@ public class FramingTest {
         Assert.assertFalse(channel.inboundMessages().isEmpty(), "Decoder failed to yield object");
         Object obj = channel.readInbound();
         Assert.assertEquals(obj, payload);
+    }
+
+    @Test
+    public void testDirectByteBufEncoderDecoderStreaming() {
+        EmbeddedChannel channel = new EmbeddedChannel(
+                new MessageEncoder(),
+                new MessageDecoder(List.of("dev.heysulo.**", "java.lang.*"))
+        );
+
+        DirectStreamingMessage msg = new DirectStreamingMessage("Zero-copy direct streaming test");
+        channel.writeOutbound(msg);
+
+        ByteBuf encodedBuf = channel.readOutbound();
+        Assert.assertNotNull(encodedBuf);
+        Assert.assertTrue(encodedBuf.readableBytes() > 4);
+
+        channel.writeInbound(encodedBuf);
+        Object decoded = channel.readInbound();
+        Assert.assertTrue(decoded instanceof DirectStreamingMessage);
+        Assert.assertEquals(((DirectStreamingMessage) decoded).data, msg.data);
     }
 
     @Test(expectedExceptions = TooLongFrameException.class)

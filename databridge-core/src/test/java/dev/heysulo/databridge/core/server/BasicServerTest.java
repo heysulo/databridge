@@ -175,8 +175,12 @@ public class BasicServerTest {
         client.connect();
 
         // Wait for at least one heartbeat cycle (ping + pong)
-        // Interval is 1s, so wait ~3s to be sure
-        Thread.sleep(3500);
+        for (int i = 0; i < 50; i++) {
+            if (server.getLatency() >= 0 && client.getLatency() >= 0) {
+                break;
+            }
+            Thread.sleep(100);
+        }
 
         long serverLatency = server.getLatency();
         long clientLatency = client.getLatency();
