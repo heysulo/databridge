@@ -2,9 +2,15 @@ package dev.heysulo.databridge.core.server;
 
 import dev.heysulo.databridge.core.client.Client;
 import dev.heysulo.databridge.core.client.RemoteClient;
+import dev.heysulo.databridge.core.common.HandshakeAckMessage;
+import dev.heysulo.databridge.core.common.HandshakeMessage;
+import dev.heysulo.databridge.core.common.HeartbeatMessage;
 import dev.heysulo.databridge.core.common.Message;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
 
 public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
     private final Server server;
@@ -18,8 +24,13 @@ public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-        if (evt instanceof io.netty.handler.timeout.IdleStateEvent) {
-            ctx.writeAndFlush(new dev.heysulo.databridge.core.common.HeartbeatMessage(System.nanoTime(), false));
+        if (evt instanceof IdleStateEvent) {
+            IdleStateEvent idleEvent = (IdleStateEvent) evt;
+            if (idleEvent.state() == IdleState.WRITER_IDLE) {
+                ctx.writeAndFlush(new HeartbeatMessage(System.nanoTime(), false));
+            } else if (idleEvent.state() == IdleState.READER_IDLE) {
+                ctx.close();
+            }
         } else {
             super.userEventTriggered(ctx, evt);
         }
@@ -27,24 +38,39 @@ public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        if (msg instanceof dev.heysulo.databridge.core.common.HeartbeatMessage) {
-            dev.heysulo.databridge.core.common.HeartbeatMessage hb = (dev.heysulo.databridge.core.common.HeartbeatMessage) msg;
+        if (msg instanceof HeartbeatMessage) {
+            HeartbeatMessage hb = (HeartbeatMessage) msg;
             if (hb.isReply) {
                 long rtt = System.nanoTime() - hb.timestamp;
                 server.updateLatency(rtt / 1_000_000); // Convert to ms
             } else {
-                ctx.writeAndFlush(new dev.heysulo.databridge.core.common.HeartbeatMessage(hb.timestamp, true));
+                ctx.writeAndFlush(new HeartbeatMessage(hb.timestamp, true));
             }
             return;
         }
 
-        if (msg instanceof dev.heysulo.databridge.core.common.HandshakeMessage) {
-            dev.heysulo.databridge.core.common.HandshakeMessage handshake = (dev.heysulo.databridge.core.common.HandshakeMessage) msg;
-            if (handshake.version != dev.heysulo.databridge.core.common.HandshakeMessage.CURRENT_VERSION) {
-                ctx.close(); // Bad Version
+        if (msg instanceof HandshakeMessage) {
+            HandshakeMessage handshake = (HandshakeMessage) msg;
+            if (handshake.version != HandshakeMessage.CURRENT_VERSION) {
+                ctx.writeAndFlush(new HandshakeAckMessage(
+                        HandshakeMessage.CURRENT_VERSION,
+                        false,
+                        "Protocol version mismatch"
+                )).addListener(ChannelFutureListener.CLOSE);
                 return;
             }
             handshaken = true;
+            ctx.writeAndFlush(new HandshakeAckMessage(
+                    HandshakeMessage.CURRENT_VERSION,
+                    true,
+                    "OK"
+            ));
+
+            if (canUseRemoteClientCallback(remoteClient)) {
+                remoteClient.getCallback().OnConnect(remoteClient);
+            } else {
+                server.getCallback().OnConnect(server, remoteClient);
+            }
             return;
         }
 
@@ -76,18 +102,13 @@ public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
     public void channelActive(final ChannelHandlerContext ctx) {
         server.incrementConnections();
         this.remoteClient = new RemoteClient(ctx);
-        // Handshake: Wait for client to send HandshakeMessage
-        if (canUseRemoteClientCallback(remoteClient)) {
-            remoteClient.getCallback().OnConnect(remoteClient);
-        } else {
-            server.getCallback().OnConnect(server, remoteClient);
-        }
+        // Handshake: Wait for client to send HandshakeMessage before calling OnConnect
     }
 
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) {
         server.decrementConnections();
-        if (remoteClient != null) {
+        if (handshaken && remoteClient != null) {
             if (canUseRemoteClientCallback(remoteClient)) {
                 remoteClient.getCallback().OnDisconnect(remoteClient);
             } else {

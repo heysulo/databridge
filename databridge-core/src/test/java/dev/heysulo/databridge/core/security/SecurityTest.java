@@ -9,6 +9,7 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.io.InvalidClassException;
+import java.util.PriorityQueue;
 import java.util.UUID;
 
 public class SecurityTest {
@@ -18,25 +19,15 @@ public class SecurityTest {
     private BasicServer server;
     private Client client;
 
-    // A message using a class that we will try to block
-    public static class ForbiddenMessage implements Message {
-        public String data = "Secret";
-    }
-
     @Test
     public void testBlockedClass() throws Exception {
         TestServerCallback serverCallback = new TestServerCallback();
         server = new BasicServer(SERVER_PORT, serverCallback);
 
-        // STRICT CONFIGURATION: Only allow our specific package, explicitly excluding
-        // this inner class if needed,
-        // but actually, since ForbiddenMessage is in
-        // dev.heysulo.databridge.core.security, it matches dev.heysulo.**
-        // So we need to restrict the server to ONLY allow something else, or use a
-        // class from a different package.
-        // Let's rely on the fact that java.awt.** is NOT in the default whitelist?
-        // Default: dev.heysulo.**, java.util.**, java.lang.**
-        // java.awt.Point should be BLOCKED by default.
+        // Clear whitelist and only allow java.lang and core.common (for handshake/heartbeat)
+        server.getTrustedPackages().clear();
+        server.addTrustedPackage("java.lang.*");
+        server.addTrustedPackage("dev.heysulo.databridge.core.common.**");
 
         server.start();
 
@@ -44,36 +35,16 @@ public class SecurityTest {
         client = new Client(SERVER_ADDRESS, SERVER_PORT, clientCallback);
         client.connect();
 
-        // We need to send a message that implements Message but contains a field of a
-        // blocked type?
-        // Or just the Message object itself?
-        // The Decoder expects a Message.
-        // If we send an object that IS a Message but its class is NOT whitelisted.
-        // But we can't easily create a class outside the package in this test.
-
-        // better approach: Clear the whitelist and only allow "java.lang.**"
-        server.getTrustedPackages().clear();
-        server.addTrustedPackage("java.lang.**");
-        // Allow Handshake/Heartbeat messages
-        server.addTrustedPackage("dev.heysulo.databridge.core.common.**");
-        // Now other dev.heysulo.** packages (like core.security) are blocked.
-
+        // ClientMessage is in dev.heysulo.databridge.core.security, so it must be blocked
         ClientMessage messageToSend = new ClientMessage(UUID.randomUUID().toString());
 
         try {
             client.send(messageToSend);
-            // Give it time to arrive and fail
             Thread.sleep(500);
 
             // Server should NOT have received it
             Assert.assertEquals(serverCallback.messageReceived.size(), 0, "Message should have been blocked");
 
-            // Check for exception in callback if we captured it?
-            // The default TestServerCallback might just log errors.
-            // The decoder throws Exception, Netty catches it and fires exceptionCaught.
-            if (serverCallback.exceptionCaught != null) {
-                serverCallback.exceptionCaught.printStackTrace();
-            }
             Throwable e = serverCallback.exceptionCaught;
             boolean found = false;
             while (e != null) {
@@ -91,11 +62,55 @@ public class SecurityTest {
         }
     }
 
+    @Test
+    public void testPriorityQueueBlockedByDefault() throws Exception {
+        int port = 6001;
+        TestServerCallback serverCallback = new TestServerCallback();
+        BasicServer testServer = new BasicServer(port, serverCallback);
+        testServer.start();
+
+        TestClientCallback clientCallback = new TestClientCallback();
+        Client testClient = new Client(SERVER_ADDRESS, port, clientCallback);
+        testClient.connect();
+
+        MessageWithPriorityQueue message = new MessageWithPriorityQueue();
+
+        try {
+            testClient.send(message);
+            Thread.sleep(500);
+
+            Assert.assertEquals(serverCallback.messageReceived.size(), 0, "PriorityQueue message should be blocked by default");
+
+            Throwable e = serverCallback.exceptionCaught;
+            boolean found = false;
+            while (e != null) {
+                if (e instanceof InvalidClassException) {
+                    found = true;
+                    break;
+                }
+                e = e.getCause();
+            }
+            Assert.assertTrue(found, "Should be InvalidClassException for PriorityQueue gadget block");
+
+        } finally {
+            testClient.disconnect();
+            testServer.stop();
+        }
+    }
+
     public static class ClientMessage implements Message {
         public String data;
 
         public ClientMessage(String data) {
             this.data = data;
+        }
+    }
+
+    public static class MessageWithPriorityQueue implements Message {
+        public PriorityQueue<String> queue = new PriorityQueue<>();
+
+        public MessageWithPriorityQueue() {
+            queue.add("item");
         }
     }
 }

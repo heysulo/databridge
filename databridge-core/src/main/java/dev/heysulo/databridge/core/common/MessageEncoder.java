@@ -16,7 +16,8 @@ public class MessageEncoder extends MessageToByteEncoder<Message> {
         objOutputStream.writeObject(message);
         objOutputStream.flush();
 
-        out.writeInt(byteArrayOutputStream.toByteArray().length);
-        out.writeBytes(byteArrayOutputStream.toByteArray());
+        byte[] bytes = byteArrayOutputStream.toByteArray();
+        out.writeInt(bytes.length);
+        out.writeBytes(bytes);
     }
 }

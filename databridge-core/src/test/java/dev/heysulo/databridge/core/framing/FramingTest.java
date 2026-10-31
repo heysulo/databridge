@@ -4,6 +4,7 @@ import dev.heysulo.databridge.core.common.MessageDecoder;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.handler.codec.TooLongFrameException;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -48,6 +49,27 @@ public class FramingTest {
         Assert.assertFalse(channel.inboundMessages().isEmpty(), "Decoder failed to yield object");
         Object obj = channel.readInbound();
         Assert.assertEquals(obj, payload);
+    }
+
+    @Test(expectedExceptions = TooLongFrameException.class)
+    public void testFrameExceedingMaxLimit() {
+        List<String> trusted = List.of("java.lang.*");
+        int maxFrameLength = 1024;
+        EmbeddedChannel channel = new EmbeddedChannel(new MessageDecoder(trusted, maxFrameLength));
+
+        ByteBuf header = Unpooled.buffer(4);
+        header.writeInt(2048); // Exceeds 1024
+        channel.writeInbound(header);
+    }
+
+    @Test(expectedExceptions = TooLongFrameException.class)
+    public void testNegativeFrameLength() {
+        List<String> trusted = List.of("java.lang.*");
+        EmbeddedChannel channel = new EmbeddedChannel(new MessageDecoder(trusted));
+
+        ByteBuf header = Unpooled.buffer(4);
+        header.writeInt(-5);
+        channel.writeInbound(header);
     }
 
     private byte[] serialize(Serializable obj) throws Exception {

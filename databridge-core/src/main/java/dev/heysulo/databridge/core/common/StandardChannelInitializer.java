@@ -9,6 +9,8 @@ import dev.heysulo.databridge.core.server.secure.SecureServer;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.socket.SocketChannel;
 
+import java.util.List;
+
 public class StandardChannelInitializer extends ChannelInitializer<SocketChannel> {
 
     private final Server server;
@@ -40,13 +42,14 @@ public class StandardChannelInitializer extends ChannelInitializer<SocketChannel
         } else if (useSsl) {
             channel.pipeline().addFirst("ssl", client.getSslContext().newHandler(channel.alloc()));
         }
-        java.util.List<String> trustedPackages = server != null ? server.getTrustedPackages()
+        List<String> trustedPackages = server != null ? server.getTrustedPackages()
                 : client.getTrustedPackages();
         int hbInterval = server != null ? server.getHeartbeatInterval() : client.getHeartbeatInterval();
+        int maxFrameLength = server != null ? server.getMaxFrameLength() : client.getMaxFrameLength();
         channel.pipeline().addLast("idleStateHandler",
                 new io.netty.handler.timeout.IdleStateHandler(hbInterval * 2, hbInterval, 0));
         channel.pipeline().addLast(
-                new MessageDecoder(trustedPackages),
+                new MessageDecoder(trustedPackages, maxFrameLength),
                 new MessageEncoder(),
                 server != null ? new ServerInboundHandler(server) : new ClientInboundHandler(client));
     }
