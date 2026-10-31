@@ -1,8 +1,10 @@
 package dev.heysulo.databridge.core.server;
 
+import dev.heysulo.databridge.core.client.Client;
 import dev.heysulo.databridge.core.common.MessageDecoder;
 import dev.heysulo.databridge.core.server.callback.ServerCallback;
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.Channel;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.ServerSocketChannel;
@@ -12,7 +14,11 @@ import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.concurrent.DefaultThreadFactory;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -31,10 +37,14 @@ public abstract class Server {
     protected final ServerCallback callback;
     protected final EventLoopGroup bossGroup;
     protected final EventLoopGroup workerGroup;
+    private final boolean sharedBossGroup;
+    private final boolean sharedWorkerGroup;
+    protected volatile Channel serverChannelInstance;
     protected final List<String> trustedPackages = new CopyOnWriteArrayList<>(DEFAULT_TRUSTED_PACKAGES);
     protected int maxFrameLength = MessageDecoder.DEFAULT_MAX_FRAME_LENGTH;
 
-    // Metrics
+    // Per-client tracking and metrics
+    protected final Set<Client> connectedClients = ConcurrentHashMap.newKeySet();
     protected final AtomicLong activeConnections = new AtomicLong();
     protected final AtomicLong totalMessages = new AtomicLong();
     protected Class<? extends ServerSocketChannel> serverChannel = NioServerSocketChannel.class;
@@ -56,13 +66,52 @@ public abstract class Server {
         }
         this.port = port;
         this.callback = callback;
-        this.bossGroup = bossGroup == null
-                ? new NioEventLoopGroup(new DefaultThreadFactory("unnamed-server-boss-group"))
-                : bossGroup;
+        this.sharedBossGroup = bossGroup != null;
+        this.sharedWorkerGroup = workerGroup != null;
+        this.bossGroup = sharedBossGroup
+                ? bossGroup
+                : new NioEventLoopGroup(new DefaultThreadFactory("unnamed-server-boss-group"));
 
-        this.workerGroup = workerGroup == null
-                ? new NioEventLoopGroup(new DefaultThreadFactory("unnamed-server-client-worker-group"))
-                : workerGroup;
+        this.workerGroup = sharedWorkerGroup
+                ? workerGroup
+                : new NioEventLoopGroup(new DefaultThreadFactory("unnamed-server-client-worker-group"));
+    }
+
+    public boolean isSharedBossGroup() {
+        return sharedBossGroup;
+    }
+
+    public boolean isSharedWorkerGroup() {
+        return sharedWorkerGroup;
+    }
+
+    public void addConnectedClient(Client client) {
+        if (client != null) {
+            connectedClients.add(client);
+        }
+    }
+
+    public void removeConnectedClient(Client client) {
+        if (client != null) {
+            connectedClients.remove(client);
+        }
+    }
+
+    public Collection<Client> getConnectedClients() {
+        return Collections.unmodifiableCollection(connectedClients);
+    }
+
+    public long getAverageLatency() {
+        long total = 0;
+        int count = 0;
+        for (Client client : connectedClients) {
+            long lat = client.getLatency();
+            if (lat >= 0) {
+                total += lat;
+                count++;
+            }
+        }
+        return count > 0 ? (total / count) : -1;
     }
 
     public long getLatency() {
@@ -131,17 +180,25 @@ public abstract class Server {
     public abstract void start() throws InterruptedException;
 
     protected void start(ServerBootstrap bootstrap) throws InterruptedException {
-        bootstrap.channel(serverChannel)
+        this.serverChannelInstance = bootstrap.channel(serverChannel)
                 .group(bossGroup, workerGroup)
                 .handler(new LoggingHandler(LogLevel.DEBUG)) // TODO: Make it configurable
                 .childOption(io.netty.channel.ChannelOption.SO_KEEPALIVE, true)
                 .bind(port)
-                .sync();
+                .sync()
+                .channel();
     }
 
     public void stop() throws InterruptedException {
-        bossGroup.shutdownGracefully().sync();
-        workerGroup.shutdownGracefully().sync();
+        if (serverChannelInstance != null) {
+            serverChannelInstance.close().sync();
+        }
+        if (!sharedBossGroup && bossGroup != null) {
+            bossGroup.shutdownGracefully().sync();
+        }
+        if (!sharedWorkerGroup && workerGroup != null) {
+            workerGroup.shutdownGracefully().sync();
+        }
     }
 
     protected ServerCallback getCallback() {

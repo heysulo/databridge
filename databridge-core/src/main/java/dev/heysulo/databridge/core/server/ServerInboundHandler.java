@@ -42,7 +42,11 @@ public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
             HeartbeatMessage hb = (HeartbeatMessage) msg;
             if (hb.isReply) {
                 long rtt = System.nanoTime() - hb.timestamp;
-                server.updateLatency(rtt / 1_000_000); // Convert to ms
+                long latency = rtt / 1_000_000;
+                if (remoteClient != null) {
+                    remoteClient.updateLatency(latency);
+                }
+                server.updateLatency(latency); // Convert to ms
             } else {
                 ctx.writeAndFlush(new HeartbeatMessage(hb.timestamp, true));
             }
@@ -60,6 +64,7 @@ public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
             handshaken = true;
+            server.addConnectedClient(remoteClient);
             ctx.writeAndFlush(new HandshakeAckMessage(
                     HandshakeMessage.CURRENT_VERSION,
                     true,
@@ -108,6 +113,9 @@ public class ServerInboundHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) {
         server.decrementConnections();
+        if (remoteClient != null) {
+            server.removeConnectedClient(remoteClient);
+        }
         if (handshaken && remoteClient != null) {
             if (canUseRemoteClientCallback(remoteClient)) {
                 remoteClient.getCallback().OnDisconnect(remoteClient);

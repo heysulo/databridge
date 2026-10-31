@@ -1,11 +1,11 @@
 package dev.heysulo.databridge.core.common;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufInputStream;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.TooLongFrameException;
 
-import java.io.ByteArrayInputStream;
 import java.io.ObjectInputFilter;
 import java.io.ObjectInputStream;
 import java.util.List;
@@ -47,17 +47,18 @@ public class MessageDecoder extends ByteToMessageDecoder {
             return;
         }
 
-        byte[] byteArray = new byte[messageLength];
-        in.readBytes(byteArray, 0, messageLength);
+        ByteBuf slice = in.readRetainedSlice(messageLength);
+        try (ByteBufInputStream byteBufInputStream = new ByteBufInputStream(slice);
+             ObjectInputStream objectInputStream = new ObjectInputStream(byteBufInputStream)) {
 
-        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(byteArray);
-        ObjectInputStream objectInputStream = new ObjectInputStream(byteArrayInputStream);
+            if (filter != null) {
+                objectInputStream.setObjectInputFilter(filter);
+            }
 
-        if (filter != null) {
-            objectInputStream.setObjectInputFilter(filter);
+            out.add(objectInputStream.readObject());
+        } finally {
+            slice.release();
         }
-
-        out.add(objectInputStream.readObject());
     }
 
     public int getMaxFrameLength() {
