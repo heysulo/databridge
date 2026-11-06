@@ -12,9 +12,11 @@ import java.io.InvalidClassException;
 import java.util.PriorityQueue;
 import java.util.UUID;
 
+import static dev.heysulo.databridge.core.TestSupport.freePort;
+import static dev.heysulo.databridge.core.TestSupport.waitUntil;
+
 public class SecurityTest {
 
-    private static final int SERVER_PORT = 6000;
     private static final String SERVER_ADDRESS = "127.0.0.1";
     private BasicServer server;
     private Client client;
@@ -22,7 +24,8 @@ public class SecurityTest {
     @Test
     public void testBlockedClass() throws Exception {
         TestServerCallback serverCallback = new TestServerCallback();
-        server = new BasicServer(SERVER_PORT, serverCallback);
+        int port = freePort();
+        server = new BasicServer(port, serverCallback);
 
         // Clear whitelist and only allow java.lang and core.common (for handshake/heartbeat)
         server.getTrustedPackages().clear();
@@ -32,7 +35,7 @@ public class SecurityTest {
         server.start();
 
         TestClientCallback clientCallback = new TestClientCallback();
-        client = new Client(SERVER_ADDRESS, SERVER_PORT, clientCallback);
+        client = new Client(SERVER_ADDRESS, port, clientCallback);
         client.connect();
 
         // ClientMessage is in dev.heysulo.databridge.core.security, so it must be blocked
@@ -40,7 +43,7 @@ public class SecurityTest {
 
         try {
             client.send(messageToSend);
-            Thread.sleep(500);
+            waitUntil(() -> serverCallback.exceptionCaught != null, "the server reports the rejection");
 
             // Server should NOT have received it
             Assert.assertEquals(serverCallback.messageReceived.size(), 0, "Message should have been blocked");
@@ -64,7 +67,7 @@ public class SecurityTest {
 
     @Test
     public void testPriorityQueueBlockedByDefault() throws Exception {
-        int port = 6001;
+        int port = freePort();
         TestServerCallback serverCallback = new TestServerCallback();
         BasicServer testServer = new BasicServer(port, serverCallback);
         testServer.start();
@@ -77,7 +80,7 @@ public class SecurityTest {
 
         try {
             testClient.send(message);
-            Thread.sleep(500);
+            waitUntil(() -> serverCallback.exceptionCaught != null, "the server reports the rejection");
 
             Assert.assertEquals(serverCallback.messageReceived.size(), 0, "PriorityQueue message should be blocked by default");
 

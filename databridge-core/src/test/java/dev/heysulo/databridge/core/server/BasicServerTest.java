@@ -4,10 +4,23 @@ import dev.heysulo.databridge.core.callback.TestClientCallback;
 import dev.heysulo.databridge.core.callback.TestServerCallback;
 import dev.heysulo.databridge.core.client.Client;
 import dev.heysulo.databridge.core.common.Message;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
 import org.testng.Assert;
-import org.testng.annotations.*;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+import static dev.heysulo.databridge.core.TestSupport.freePort;
+import static dev.heysulo.databridge.core.TestSupport.sendWithBackpressure;
+import static dev.heysulo.databridge.core.TestSupport.waitUntil;
 
 public class BasicServerTest {
 
@@ -19,178 +32,142 @@ public class BasicServerTest {
         }
     }
 
-    private static int SERVER_PORT = 3000;
-    private static String SERVER_ADDRESS = "127.0.0.1";
-    private static BasicServer server;
-    private static TestServerCallback serverCallback = new TestServerCallback();
+    private static final String SERVER_ADDRESS = "127.0.0.1";
+    private static final int MESSAGE_COUNT = 1000;
+
+    private final List<Client> clients = new ArrayList<>();
+    private EventLoopGroup eventLoops;
+    private BasicServer server;
+    private TestServerCallback serverCallback;
+    private int serverPort;
 
     @BeforeClass
-    void serverSetup() throws InterruptedException {
-        server = new BasicServer(SERVER_PORT, serverCallback);
-        server.start();
+    void createEventLoops() {
+        eventLoops = new NioEventLoopGroup(); // Avoids a graceful group shutdown after every test
+    }
+
+    @AfterClass(alwaysRun = true)
+    void shutdownEventLoops() {
+        eventLoops.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS);
     }
 
     @BeforeMethod
-    void resetCallbacks() {
-        serverCallback.reset();
+    void startServer() throws Exception {
+        serverPort = freePort();
+        serverCallback = new TestServerCallback();
+        server = new BasicServer(serverPort, serverCallback, eventLoops, eventLoops);
+        server.start();
     }
 
-    @AfterTest
-    void serverShutdown() throws InterruptedException {
+    @AfterMethod(alwaysRun = true)
+    void stopServer() throws InterruptedException {
+        for (Client client : clients) {
+            client.stop();
+        }
+        clients.clear();
         server.stop();
+    }
+
+    private Client connectClient(TestClientCallback clientCallback) throws InterruptedException {
+        Client client = new Client(SERVER_ADDRESS, serverPort, clientCallback, eventLoops);
+        clients.add(client);
+        client.connect();
+        waitUntil(() -> serverCallback.connected && clientCallback.connected, "both sides report the connection");
+        return client;
+    }
+
+    private void awaitDisconnection(TestClientCallback clientCallback) throws InterruptedException {
+        waitUntil(() -> serverCallback.disconnected && clientCallback.disconnected, "both sides report the disconnection");
     }
 
     @Test
     void testCallbackEvents() throws InterruptedException {
-        // Client Setup
         TestClientCallback clientCallback = new TestClientCallback();
-        Client client = new Client(SERVER_ADDRESS, SERVER_PORT, clientCallback);
-
-        // OnConnect
-        client.connect();
-        Thread.sleep(100);
-        Assert.assertTrue(serverCallback.connected);
-        Assert.assertTrue(clientCallback.connected);
+        Client client = connectClient(clientCallback);
         Assert.assertFalse(serverCallback.disconnected);
         Assert.assertFalse(clientCallback.disconnected);
 
-        // OnDisconnect
         client.disconnect();
-        Thread.sleep(100);
-        Assert.assertTrue(serverCallback.disconnected);
-        Assert.assertTrue(clientCallback.disconnected);
+        awaitDisconnection(clientCallback);
     }
 
     @Test
     void testClientToServerCommunication() throws InterruptedException {
-        // Client Setup
-        TestClientCallback clientCallback = new TestClientCallback();
-        Client client = new Client(SERVER_ADDRESS, SERVER_PORT, clientCallback);
-        client.connect();
+        Client client = connectClient(new TestClientCallback());
 
-        // Client to Server Message
         TestMessage message = new TestMessage(UUID.randomUUID().toString());
         client.send(message);
-        Thread.sleep(100);
-        Assert.assertEquals(serverCallback.messageReceived.size(), 1);
+
+        waitUntil(() -> serverCallback.messageReceived.size() == 1, "the server receives the message");
         Assert.assertEquals(message.message, ((TestMessage) serverCallback.messageReceived.get(0)).message);
-        client.disconnect();
     }
 
     @Test
     void testServerToClientCommunication() throws InterruptedException {
-        // Client Setup
         TestClientCallback clientCallback = new TestClientCallback();
-        Client client = new Client(SERVER_ADDRESS, SERVER_PORT, clientCallback);
-        client.connect();
-        Thread.sleep(100);
+        connectClient(clientCallback);
 
-        // Client to Server Message
         TestMessage message = new TestMessage(UUID.randomUUID().toString());
-        Client serverSideClient = serverCallback.connectedClients.get(0);
-        serverSideClient.send(message);
-        Thread.sleep(100);
-        Assert.assertEquals(clientCallback.messageReceived.size(), 1);
+        serverCallback.connectedClients.get(0).send(message);
+
+        waitUntil(() -> clientCallback.messageReceived.size() == 1, "the client receives the message");
         Assert.assertEquals(message.message, ((TestMessage) clientCallback.messageReceived.get(0)).message);
-        client.disconnect();
     }
 
     @Test
     void testSend1000MessagesClientToServer() throws InterruptedException {
-        // Client Setup
-        TestClientCallback clientCallback = new TestClientCallback();
-        Client client = new Client(SERVER_ADDRESS, SERVER_PORT, clientCallback);
-        client.connect();
-        Thread.sleep(100);
+        Client client = connectClient(new TestClientCallback());
 
-        // Client to Server Message
-        for (int i = 0; i < 1000; i++) {
-            TestMessage message = new TestMessage(UUID.randomUUID().toString());
-            client.send(message);
-            // Thread.sleep(1); // Should be okay in 2 machines
+        for (int i = 0; i < MESSAGE_COUNT; i++) {
+            sendWithBackpressure(client, new TestMessage(UUID.randomUUID().toString()));
         }
-        client.disconnect();
-        Thread.sleep(1000);
-        Assert.assertEquals(serverCallback.messageReceived.size(), 1000);
+        client.disconnect(); // Queued messages must still be delivered
+
+        waitUntil(() -> serverCallback.messageReceived.size() == MESSAGE_COUNT, "the server receives every message");
     }
 
     @Test
     void testSend1000MessagesServerToClient() throws InterruptedException {
-        // Client Setup
         TestClientCallback clientCallback = new TestClientCallback();
-        Client client = new Client(SERVER_ADDRESS, SERVER_PORT, clientCallback);
-        client.connect();
-        Thread.sleep(100);
+        connectClient(clientCallback);
 
-        // Client to Server Message
         Client serverSideClient = serverCallback.connectedClients.get(0);
-        for (int i = 0; i < 1000; i++) {
-            TestMessage message = new TestMessage(UUID.randomUUID().toString());
-            serverSideClient.send(message);
-            Thread.sleep(1); // Should be okay in 2 machines
+        for (int i = 0; i < MESSAGE_COUNT; i++) {
+            sendWithBackpressure(serverSideClient, new TestMessage(UUID.randomUUID().toString()));
         }
-        client.disconnect();
-        Thread.sleep(1000);
-        Assert.assertEquals(clientCallback.messageReceived.size(), 1000);
+
+        waitUntil(() -> clientCallback.messageReceived.size() == MESSAGE_COUNT, "the client receives every message");
     }
 
     @Test
     void testClientDisconnection() throws InterruptedException {
         TestClientCallback clientCallback = new TestClientCallback();
-        Client client = new Client(SERVER_ADDRESS, SERVER_PORT, clientCallback);
-        client.connect();
-        Thread.sleep(100);
+        Client client = connectClient(clientCallback);
 
-        Assert.assertTrue(serverCallback.connected);
-        Assert.assertTrue(clientCallback.connected);
         client.disconnect();
-        Thread.sleep(100);
-        Assert.assertTrue(serverCallback.disconnected);
-        Assert.assertTrue(clientCallback.disconnected);
+
+        awaitDisconnection(clientCallback);
     }
 
     @Test
     void testRemoteClientDisconnection() throws InterruptedException {
         TestClientCallback clientCallback = new TestClientCallback();
-        Client client = new Client(SERVER_ADDRESS, SERVER_PORT, clientCallback);
-        client.connect();
-        Thread.sleep(100);
+        connectClient(clientCallback);
 
-        Assert.assertTrue(serverCallback.connected);
-        Assert.assertTrue(clientCallback.connected);
-        Client remoteClient = serverCallback.connectedClients.get(0);
-        remoteClient.disconnect();
-        Thread.sleep(100);
-        Assert.assertTrue(serverCallback.disconnected);
-        Assert.assertTrue(clientCallback.disconnected);
+        serverCallback.connectedClients.get(0).disconnect();
+
+        awaitDisconnection(clientCallback);
     }
 
     @Test
     void testLatencyMeasurement() throws InterruptedException {
-        // Client Setup
-        server.setHeartbeatInterval(1); // Fast heartbeats for testing
-        TestClientCallback clientCallback = new TestClientCallback();
-        Client client = new Client(SERVER_ADDRESS, SERVER_PORT, clientCallback);
+        server.setHeartbeatInterval(1);
+        Client client = new Client(SERVER_ADDRESS, serverPort, new TestClientCallback(), eventLoops);
+        clients.add(client);
         client.setHeartbeatInterval(1);
         client.connect();
 
-        // Wait for at least one heartbeat cycle (ping + pong)
-        for (int i = 0; i < 50; i++) {
-            if (server.getLatency() >= 0 && client.getLatency() >= 0) {
-                break;
-            }
-            Thread.sleep(100);
-        }
-
-        long serverLatency = server.getLatency();
-        long clientLatency = client.getLatency();
-
-        System.out.println("Server Latency: " + serverLatency + "ms");
-        System.out.println("Client Latency: " + clientLatency + "ms");
-
-        Assert.assertTrue(serverLatency >= 0, "Server latency should be measured");
-        Assert.assertTrue(clientLatency >= 0, "Client latency should be measured");
-
-        client.disconnect();
+        waitUntil(() -> server.getLatency() >= 0, "the server measures latency");
+        waitUntil(() -> client.getLatency() >= 0, "the client measures latency");
     }
 }

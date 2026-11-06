@@ -6,10 +6,10 @@ import dev.heysulo.databridge.core.server.Server;
 import dev.heysulo.databridge.core.server.callback.ServerCallback;
 
 public class TestServerCallback implements ServerCallback {
-    public boolean connected = false;
-    public boolean disconnected = false;
-    public boolean errorReceived = false;
-    public Throwable exceptionCaught;
+    public volatile boolean connected = false;
+    public volatile boolean disconnected = false;
+    public volatile boolean errorReceived = false;
+    public volatile Throwable exceptionCaught;
     public java.util.List<Message> messageReceived = java.util.Collections
             .synchronizedList(new java.util.ArrayList<>());
     public java.util.List<Client> connectedClients = java.util.Collections

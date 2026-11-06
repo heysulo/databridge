@@ -5,12 +5,14 @@ import dev.heysulo.databridge.core.client.callback.ClientCallback;
 import dev.heysulo.databridge.core.common.Message;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class TestClientCallback implements ClientCallback {
-    public boolean connected = false;
-    public boolean disconnected = false;
-    public ArrayList<Message> messageReceived = new ArrayList<>();
-    public boolean errorReceived = false;
+    public volatile boolean connected = false;
+    public volatile boolean disconnected = false;
+    public final List<Message> messageReceived = Collections.synchronizedList(new ArrayList<>());
+    public volatile boolean errorReceived = false;
 
     @Override
     public void OnConnect(Client client) {

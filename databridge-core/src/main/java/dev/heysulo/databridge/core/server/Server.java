@@ -1,11 +1,14 @@
 package dev.heysulo.databridge.core.server;
 
 import dev.heysulo.databridge.core.client.Client;
+import dev.heysulo.databridge.core.common.EventLoops;
 import dev.heysulo.databridge.core.common.MessageDecoder;
 import dev.heysulo.databridge.core.server.callback.ServerCallback;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.group.ChannelGroup;
+import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.ServerSocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -13,6 +16,8 @@ import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.GlobalEventExecutor;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -23,15 +28,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
 public abstract class Server {
-    public static final List<String> DEFAULT_TRUSTED_PACKAGES = List.of(
-            "!java.util.PriorityQueue",
-            "!java.rmi.**",
-            "!java.lang.reflect.**",
-            "!java.lang.invoke.**",
-            "dev.heysulo.**",
-            "java.lang.*",
-            "java.util.*"
-    );
+    public static final List<String> DEFAULT_TRUSTED_PACKAGES = MessageDecoder.DEFAULT_TRUSTED_PACKAGES;
 
     protected final int port;
     protected final ServerCallback callback;
@@ -45,6 +42,7 @@ public abstract class Server {
 
     // Per-client tracking and metrics
     protected final Set<Client> connectedClients = ConcurrentHashMap.newKeySet();
+    private final ChannelGroup clientChannels = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
     protected final AtomicLong activeConnections = new AtomicLong();
     protected final AtomicLong totalMessages = new AtomicLong();
     protected Class<? extends ServerSocketChannel> serverChannel = NioServerSocketChannel.class;
@@ -52,6 +50,7 @@ public abstract class Server {
 
     // Config
     protected int heartbeatInterval = 30;
+    protected int handshakeTimeout = 10;
 
     public Server(int port, ServerCallback callback) {
         this(port, callback, null, null);
@@ -130,6 +129,20 @@ public abstract class Server {
         this.heartbeatInterval = seconds;
     }
 
+    public int getHandshakeTimeout() {
+        return this.handshakeTimeout;
+    }
+
+    /**
+     * Sets how long, in seconds, a new connection may take to complete the handshake before it is closed.
+     */
+    public void setHandshakeTimeout(int seconds) {
+        if (seconds <= 0) {
+            throw new IllegalArgumentException("Handshake timeout must be positive");
+        }
+        this.handshakeTimeout = seconds;
+    }
+
     public void addTrustedPackage(String packagePattern) {
         this.trustedPackages.add(packagePattern);
     }
@@ -152,6 +165,10 @@ public abstract class Server {
 
     public long getTotalMessages() {
         return totalMessages.get();
+    }
+
+    void trackChannel(Channel channel) {
+        clientChannels.add(channel);
     }
 
     public void incrementConnections() {
@@ -189,15 +206,27 @@ public abstract class Server {
                 .channel();
     }
 
+    /**
+     * Stops listening, closes every client connection and releases owned resources. Waits for completion unless
+     * called from a callback, in which case shutdown continues after the callback returns.
+     */
     public void stop() throws InterruptedException {
+        boolean canWait = !EventLoops.isCurrentThreadIn(bossGroup) && !EventLoops.isCurrentThreadIn(workerGroup);
         if (serverChannelInstance != null) {
-            serverChannelInstance.close().sync();
+            awaitIf(canWait, serverChannelInstance.close());
         }
-        if (!sharedBossGroup && bossGroup != null) {
-            bossGroup.shutdownGracefully().sync();
+        awaitIf(canWait, clientChannels.close());
+        if (!sharedBossGroup) {
+            awaitIf(canWait, bossGroup.shutdownGracefully());
         }
-        if (!sharedWorkerGroup && workerGroup != null) {
-            workerGroup.shutdownGracefully().sync();
+        if (!sharedWorkerGroup) {
+            awaitIf(canWait, workerGroup.shutdownGracefully());
+        }
+    }
+
+    private static void awaitIf(boolean canWait, Future<?> future) throws InterruptedException {
+        if (canWait) {
+            future.await();
         }
     }
 

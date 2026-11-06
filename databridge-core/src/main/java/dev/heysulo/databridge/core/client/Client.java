@@ -1,6 +1,7 @@
 package dev.heysulo.databridge.core.client;
 
 import dev.heysulo.databridge.core.client.callback.ClientCallback;
+import dev.heysulo.databridge.core.common.EventLoops;
 import dev.heysulo.databridge.core.common.Message;
 import dev.heysulo.databridge.core.common.MessageDecoder;
 import dev.heysulo.databridge.core.common.StandardChannelInitializer;
@@ -8,27 +9,22 @@ import dev.heysulo.databridge.core.exception.ConnectionBufferedException;
 import dev.heysulo.databridge.core.exception.ConnectionUnavailableException;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.concurrent.Future;
 
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class Client {
-    public static final List<String> DEFAULT_TRUSTED_PACKAGES = List.of(
-            "!java.util.PriorityQueue",
-            "!java.rmi.**",
-            "!java.lang.reflect.**",
-            "!java.lang.invoke.**",
-            "dev.heysulo.**",
-            "java.lang.*",
-            "java.util.*"
-    );
+    public static final List<String> DEFAULT_TRUSTED_PACKAGES = MessageDecoder.DEFAULT_TRUSTED_PACKAGES;
 
     protected final String remoteAddress;
     protected final int remotePort;
@@ -40,6 +36,7 @@ public class Client {
     protected volatile ChannelHandlerContext channelHandlerContext;
     protected volatile long activeLatency = -1;
     protected int maxFrameLength = MessageDecoder.DEFAULT_MAX_FRAME_LENGTH;
+    protected boolean hostnameVerificationEnabled = true;
 
     // Config
     protected int heartbeatInterval = 30;
@@ -115,6 +112,18 @@ public class Client {
         this.maxFrameLength = maxFrameLength;
     }
 
+    public boolean isHostnameVerificationEnabled() {
+        return hostnameVerificationEnabled;
+    }
+
+    /**
+     * Controls whether TLS connections check that the server certificate matches the remote address. Disabling this
+     * allows impersonation by anyone holding a trusted certificate, so it should be limited to controlled environments.
+     */
+    public void setHostnameVerificationEnabled(boolean hostnameVerificationEnabled) {
+        this.hostnameVerificationEnabled = hostnameVerificationEnabled;
+    }
+
     public void connect() throws InterruptedException {
         Bootstrap bootstrap = new Bootstrap();
         Channel channel = bootstrap
@@ -127,6 +136,10 @@ public class Client {
         this.channelHandlerContext = channel.pipeline().context(ClientInboundHandler.class);
     }
 
+    /**
+     * Queues a message for delivery. Failures after this call returns, such as a message that cannot be serialized,
+     * are reported through the {@code OnError} callback.
+     */
     public void send(Message message) {
         if (channelHandlerContext == null || !channelHandlerContext.channel().isActive()) {
             throw new ConnectionUnavailableException(channelHandlerContext != null ? channelHandlerContext.channel() : null);
@@ -134,23 +147,38 @@ public class Client {
         if (!channelHandlerContext.channel().isWritable()) {
             throw new ConnectionBufferedException();
         }
-        channelHandlerContext.writeAndFlush(message);
+        channelHandlerContext.writeAndFlush(message).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
     }
 
     public boolean isConnected() {
         return channelHandlerContext != null && channelHandlerContext.channel().isActive();
     }
 
+    /**
+     * Closes the connection. Waits for completion unless called from a callback, where waiting is not possible.
+     */
     public void disconnect() throws InterruptedException {
-        if (channelHandlerContext != null) {
-            channelHandlerContext.close().sync();
+        ChannelHandlerContext context = channelHandlerContext;
+        if (context == null) {
+            return;
+        }
+        ChannelFuture closeFuture = context.close();
+        if (!context.executor().inEventLoop()) {
+            closeFuture.sync();
         }
     }
 
+    /**
+     * Closes the connection and releases owned resources. Waits for completion unless called from a callback, in
+     * which case shutdown continues after the callback returns.
+     */
     public void stop() throws InterruptedException {
         disconnect();
         if (!sharedWorkerGroup && workerGroup != null) {
-            workerGroup.shutdownGracefully().sync();
+            Future<?> shutdownFuture = workerGroup.shutdownGracefully();
+            if (!EventLoops.isCurrentThreadIn(workerGroup)) {
+                shutdownFuture.sync();
+            }
         }
     }
 
