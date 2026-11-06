@@ -138,5 +138,13 @@ public class MyClient {
 
 ## Security Metrics
 
-- **Trusted Packages**: By default, only `java.lang.*`, `java.util.*`, and `dev.heysulo.*` are allowed. Use `addTrustedPackage()` to allow your own domain classes.
-- **SSL**: Use `SecureServer` and pass an internal `SslContext` for encrypted communications.
+- **Trusted Packages**: By default, only `java.lang.*`, `dev.heysulo.**`, and a fixed set of common `java.util` collections and value types are allowed (see `MessageDecoder.DEFAULT_TRUSTED_PACKAGES`). Other `java.util` classes are rejected. Use `addTrustedPackage()` on both the client and the server to allow your own domain classes.
+- **Handshake**: Until the handshake completes, only handshake messages of up to 4 KB are accepted, so unauthenticated peers cannot reach the trusted packages. Connections that do not finish within `setHandshakeTimeout()` (10 seconds by default) are closed.
+- **Deserialization Limits**: Every frame is limited in object depth, reference count, size, and array length. A frame that breaks these limits or the allowlist closes the connection.
+- **SSL**: Use `SecureServer` and pass an internal `SslContext` for encrypted communications. Clients check that the server certificate matches the address they connect to. `Client.setHostnameVerificationEnabled(false)` turns this off, but allows impersonation by anyone holding a trusted certificate.
+
+## Error Handling
+
+- `send()` queues the message and returns. Later failures, such as a message that cannot be serialized or exceeds the maximum frame length, are reported through `OnError`.
+- `stop()` and `disconnect()` can be called from callbacks. There they return without waiting, and shutdown finishes after the callback returns.
+- Callbacks run on Netty event loops, so blocking in one delays every connection on that loop.

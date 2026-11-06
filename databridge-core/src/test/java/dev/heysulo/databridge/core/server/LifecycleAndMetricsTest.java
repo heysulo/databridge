@@ -9,11 +9,14 @@ import io.netty.util.concurrent.DefaultThreadFactory;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import static dev.heysulo.databridge.core.TestSupport.freePort;
+import static dev.heysulo.databridge.core.TestSupport.waitUntil;
+
 public class LifecycleAndMetricsTest {
 
     @Test
     public void testSharedEventLoopGroupNotTerminatedOnServerStop() throws Exception {
-        int port = 7001;
+        int port = freePort();
         EventLoopGroup sharedBoss = new NioEventLoopGroup(1, new DefaultThreadFactory("shared-boss"));
         EventLoopGroup sharedWorker = new NioEventLoopGroup(1, new DefaultThreadFactory("shared-worker"));
 
@@ -27,9 +30,7 @@ public class LifecycleAndMetricsTest {
         TestClientCallback clientCallback = new TestClientCallback();
         Client client = new Client("127.0.0.1", port, clientCallback);
         client.connect();
-        Thread.sleep(100);
-
-        Assert.assertTrue(serverCallback.connected);
+        waitUntil(() -> serverCallback.connected, "the server reports the connection");
 
         client.disconnect();
         server.stop();
@@ -45,7 +46,7 @@ public class LifecycleAndMetricsTest {
 
     @Test
     public void testSharedWorkerGroupNotTerminatedOnClientStop() throws Exception {
-        int port = 7002;
+        int port = freePort();
         EventLoopGroup sharedWorker = new NioEventLoopGroup(1, new DefaultThreadFactory("shared-client-worker"));
 
         TestServerCallback serverCallback = new TestServerCallback();
@@ -57,9 +58,7 @@ public class LifecycleAndMetricsTest {
         Assert.assertTrue(client.isSharedWorkerGroup());
 
         client.connect();
-        Thread.sleep(100);
-
-        Assert.assertTrue(clientCallback.connected);
+        waitUntil(() -> clientCallback.connected, "the client reports the connection");
 
         client.stop();
 
@@ -72,7 +71,7 @@ public class LifecycleAndMetricsTest {
 
     @Test
     public void testMultiClientIndividualLatencyAndSessionTracking() throws Exception {
-        int port = 7003;
+        int port = freePort();
         TestServerCallback serverCallback = new TestServerCallback();
         BasicServer server = new BasicServer(port, serverCallback);
         server.setHeartbeatInterval(1);
@@ -88,35 +87,23 @@ public class LifecycleAndMetricsTest {
         client2.setHeartbeatInterval(1);
         client2.connect();
 
-        // Wait for connection and heartbeats
-        for (int i = 0; i < 50; i++) {
-            if (server.getConnectedClients().size() == 2 && server.getAverageLatency() >= 0) {
-                break;
-            }
-            Thread.sleep(100);
-        }
-
-        Assert.assertEquals(server.getConnectedClients().size(), 2, "Server should track 2 connected clients");
+        waitUntil(() -> server.getConnectedClients().size() == 2, "the server tracks 2 connected clients");
 
         // Each server-side client representation must have its own tracked latency
-        for (Client serverSideClient : server.getConnectedClients()) {
-            Assert.assertTrue(serverSideClient.getLatency() >= 0,
-                    "Each client session must have its own measured latency");
-        }
-
+        waitUntil(() -> server.getConnectedClients().stream().allMatch(client -> client.getLatency() >= 0),
+                "each client session has its own measured latency");
         Assert.assertTrue(server.getAverageLatency() >= 0, "Server average latency should be computed");
-        Assert.assertTrue(client1.getLatency() >= 0, "Client 1 latency should be measured");
-        Assert.assertTrue(client2.getLatency() >= 0, "Client 2 latency should be measured");
+
+        waitUntil(() -> client1.getLatency() >= 0, "client 1 measures latency");
+        waitUntil(() -> client2.getLatency() >= 0, "client 2 measures latency");
 
         // Disconnect first client
         client1.disconnect();
-        Thread.sleep(200);
-        Assert.assertEquals(server.getConnectedClients().size(), 1, "Connected clients count should decrease to 1");
+        waitUntil(() -> server.getConnectedClients().size() == 1, "the connected client count decreases to 1");
 
         // Disconnect second client
         client2.disconnect();
-        Thread.sleep(200);
-        Assert.assertEquals(server.getConnectedClients().size(), 0, "Connected clients count should be 0");
+        waitUntil(() -> server.getConnectedClients().isEmpty(), "the connected client count decreases to 0");
 
         server.stop();
     }

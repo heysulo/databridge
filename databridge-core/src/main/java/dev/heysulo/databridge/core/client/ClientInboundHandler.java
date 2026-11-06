@@ -3,17 +3,22 @@ package dev.heysulo.databridge.core.client;
 import dev.heysulo.databridge.core.common.HandshakeAckMessage;
 import dev.heysulo.databridge.core.common.HandshakeMessage;
 import dev.heysulo.databridge.core.common.HeartbeatMessage;
+import dev.heysulo.databridge.core.common.HeartbeatScheduler;
 import dev.heysulo.databridge.core.common.Message;
+import dev.heysulo.databridge.core.common.MessageDecoder;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.codec.DecoderException;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
+import io.netty.util.concurrent.ScheduledFuture;
 
 import java.util.UUID;
 
 public class ClientInboundHandler extends ChannelInboundHandlerAdapter {
     private final Client client;
     private boolean handshaken = false;
+    private ScheduledFuture<?> heartbeatTask;
 
     public ClientInboundHandler(Client client) {
         super();
@@ -24,9 +29,7 @@ public class ClientInboundHandler extends ChannelInboundHandlerAdapter {
     public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
         if (evt instanceof IdleStateEvent) {
             IdleStateEvent idleEvent = (IdleStateEvent) evt;
-            if (idleEvent.state() == IdleState.WRITER_IDLE) {
-                ctx.writeAndFlush(new HeartbeatMessage(System.nanoTime(), false));
-            } else if (idleEvent.state() == IdleState.READER_IDLE) {
+            if (idleEvent.state() == IdleState.READER_IDLE) {
                 ctx.close();
             }
         } else {
@@ -36,6 +39,16 @@ public class ClientInboundHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        if (msg instanceof HandshakeAckMessage) {
+            handleHandshakeAck(ctx, (HandshakeAckMessage) msg);
+            return;
+        }
+
+        if (!handshaken) {
+            rejectProtocolViolation(ctx, "Received data before handshake completed");
+            return;
+        }
+
         if (msg instanceof HeartbeatMessage) {
             HeartbeatMessage hb = (HeartbeatMessage) msg;
             if (hb.isReply) {
@@ -47,19 +60,8 @@ public class ClientInboundHandler extends ChannelInboundHandlerAdapter {
             return;
         }
 
-        if (msg instanceof HandshakeAckMessage) {
-            HandshakeAckMessage ack = (HandshakeAckMessage) msg;
-            if (ack.success) {
-                this.handshaken = true;
-                if (client.getCallback() != null) {
-                    client.getCallback().OnConnect(client);
-                }
-            } else {
-                ctx.close();
-                if (client.getCallback() != null) {
-                    client.getCallback().OnError(client, new IllegalStateException("Handshake rejected: " + ack.message));
-                }
-            }
+        if (!(msg instanceof Message)) {
+            rejectProtocolViolation(ctx, "Received a frame that is not a Message: " + msg.getClass().getName());
             return;
         }
 
@@ -68,8 +70,38 @@ public class ClientInboundHandler extends ChannelInboundHandlerAdapter {
         }
     }
 
+    private void handleHandshakeAck(ChannelHandlerContext ctx, HandshakeAckMessage ack) {
+        if (handshaken) {
+            rejectProtocolViolation(ctx, "Received a duplicate handshake acknowledgement");
+            return;
+        }
+        if (!ack.success) {
+            rejectProtocolViolation(ctx, "Handshake rejected: " + ack.message);
+            return;
+        }
+        this.handshaken = true;
+        MessageDecoder decoder = ctx.pipeline().get(MessageDecoder.class);
+        if (decoder != null) {
+            decoder.completeHandshake();
+        }
+        heartbeatTask = HeartbeatScheduler.start(ctx, client.getHeartbeatInterval());
+        if (client.getCallback() != null) {
+            client.getCallback().OnConnect(client);
+        }
+    }
+
+    private void rejectProtocolViolation(ChannelHandlerContext ctx, String reason) {
+        ctx.close();
+        if (client.getCallback() != null) {
+            client.getCallback().OnError(client, new IllegalStateException(reason));
+        }
+    }
+
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        if (cause instanceof DecoderException) {
+            ctx.close(); // The inbound stream can no longer be trusted
+        }
         if (client.getCallback() != null) {
             this.client.getCallback().OnError(client, cause);
         }
@@ -86,8 +118,16 @@ public class ClientInboundHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
+        cancelHeartbeats();
         if (handshaken && client.getCallback() != null) {
             this.client.getCallback().OnDisconnect(client);
+        }
+    }
+
+    private void cancelHeartbeats() {
+        if (heartbeatTask != null) {
+            heartbeatTask.cancel(false);
+            heartbeatTask = null;
         }
     }
 }
