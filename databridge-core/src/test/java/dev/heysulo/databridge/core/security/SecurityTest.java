@@ -28,9 +28,9 @@ public class SecurityTest {
         server = new BasicServer(port, serverCallback);
 
         // Clear whitelist and only allow java.lang and core.common (for handshake/heartbeat)
-        server.getTrustedPackages().clear();
-        server.addTrustedPackage("java.lang.*");
-        server.addTrustedPackage("dev.heysulo.databridge.core.common.**");
+        server.settings().clearTrustedPackages();
+        server.settings().addTrustedPackage("java.lang.*");
+        server.settings().addTrustedPackage("dev.heysulo.databridge.core.common.**");
 
         server.start();
 

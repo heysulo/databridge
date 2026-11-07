@@ -3,6 +3,7 @@ package dev.heysulo.databridge.core.server;
 import dev.heysulo.databridge.core.callback.TestClientCallback;
 import dev.heysulo.databridge.core.callback.TestServerCallback;
 import dev.heysulo.databridge.core.client.Client;
+import dev.heysulo.databridge.core.common.Connection;
 import dev.heysulo.databridge.core.common.Message;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -13,6 +14,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -131,7 +133,7 @@ public class BasicServerTest {
         TestClientCallback clientCallback = new TestClientCallback();
         connectClient(clientCallback);
 
-        Client serverSideClient = serverCallback.connectedClients.get(0);
+        Connection serverSideClient = serverCallback.connectedClients.get(0);
         for (int i = 0; i < MESSAGE_COUNT; i++) {
             sendWithBackpressure(serverSideClient, new TestMessage(UUID.randomUUID().toString()));
         }
@@ -161,13 +163,13 @@ public class BasicServerTest {
 
     @Test
     void testLatencyMeasurement() throws InterruptedException {
-        server.setHeartbeatInterval(1);
+        server.settings().setHeartbeatInterval(Duration.ofSeconds(1));
         Client client = new Client(SERVER_ADDRESS, serverPort, new TestClientCallback(), eventLoops);
         clients.add(client);
-        client.setHeartbeatInterval(1);
+        client.settings().setHeartbeatInterval(Duration.ofSeconds(1));
         client.connect();
 
-        waitUntil(() -> server.getLatency() >= 0, "the server measures latency");
-        waitUntil(() -> client.getLatency() >= 0, "the client measures latency");
+        waitUntil(() -> server.getAverageLatencyMillis().isPresent(), "the server measures latency");
+        waitUntil(() -> client.getLatencyMillis().isPresent(), "the client measures latency");
     }
 }

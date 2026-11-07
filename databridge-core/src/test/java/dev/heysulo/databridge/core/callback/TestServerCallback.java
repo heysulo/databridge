@@ -1,6 +1,6 @@
 package dev.heysulo.databridge.core.callback;
 
-import dev.heysulo.databridge.core.client.Client;
+import dev.heysulo.databridge.core.common.Connection;
 import dev.heysulo.databridge.core.common.Message;
 import dev.heysulo.databridge.core.server.Server;
 import dev.heysulo.databridge.core.server.callback.ServerCallback;
@@ -12,27 +12,27 @@ public class TestServerCallback implements ServerCallback {
     public volatile Throwable exceptionCaught;
     public java.util.List<Message> messageReceived = java.util.Collections
             .synchronizedList(new java.util.ArrayList<>());
-    public java.util.List<Client> connectedClients = java.util.Collections
+    public java.util.List<Connection> connectedClients = java.util.Collections
             .synchronizedList(new java.util.ArrayList<>());
 
     @Override
-    public void OnConnect(Server server, Client client) {
+    public void onConnect(Server server, Connection client) {
         connected = true;
         connectedClients.add(client);
     }
 
     @Override
-    public void OnDisconnect(Server server, Client client) {
+    public void onDisconnect(Server server, Connection client) {
         disconnected = true;
     }
 
     @Override
-    public void OnMessage(Server server, Client client, Message msg) {
+    public void onMessage(Server server, Connection client, Message msg) {
         messageReceived.add(msg);
     }
 
     @Override
-    public void OnError(Server server, Client client, Throwable cause) {
+    public void onError(Server server, Connection client, Throwable cause) {
         errorReceived = true;
         exceptionCaught = cause;
     }

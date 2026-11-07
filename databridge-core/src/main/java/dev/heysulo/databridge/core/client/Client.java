@@ -1,115 +1,70 @@
 package dev.heysulo.databridge.core.client;
 
 import dev.heysulo.databridge.core.client.callback.ClientCallback;
+import dev.heysulo.databridge.core.common.ChannelConnection;
 import dev.heysulo.databridge.core.common.EventLoops;
-import dev.heysulo.databridge.core.common.Message;
-import dev.heysulo.databridge.core.common.MessageDecoder;
-import dev.heysulo.databridge.core.common.StandardChannelInitializer;
-import dev.heysulo.databridge.core.exception.ConnectionBufferedException;
-import dev.heysulo.databridge.core.exception.ConnectionUnavailableException;
+import dev.heysulo.databridge.core.common.ProtocolChannelInitializer;
+import dev.heysulo.databridge.core.common.ProtocolSettings;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslHandler;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.netty.util.concurrent.Future;
 
-import java.net.InetSocketAddress;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLParameters;
+import java.util.Objects;
 
-public class Client {
-    public static final List<String> DEFAULT_TRUSTED_PACKAGES = MessageDecoder.DEFAULT_TRUSTED_PACKAGES;
+public class Client extends ChannelConnection {
 
-    protected final String remoteAddress;
-    protected final int remotePort;
-    protected final EventLoopGroup workerGroup;
+    private static final String WORKER_THREAD_NAME = "databridge-client-worker";
+    private static final String HOSTNAME_VERIFICATION_ALGORITHM = "HTTPS";
+
+    private final ClientCallback callback;
+    private final SslContext sslContext;
     private final boolean sharedWorkerGroup;
-    protected final SslContext sslContext;
-    protected final List<String> trustedPackages = new CopyOnWriteArrayList<>(DEFAULT_TRUSTED_PACKAGES);
-    protected ClientCallback callback;
-    protected volatile ChannelHandlerContext channelHandlerContext;
-    protected volatile long activeLatency = -1;
-    protected int maxFrameLength = MessageDecoder.DEFAULT_MAX_FRAME_LENGTH;
-    protected boolean hostnameVerificationEnabled = true;
-
-    // Config
-    protected int heartbeatInterval = 30;
+    private final ProtocolSettings settings = new ProtocolSettings();
+    private EventLoopGroup workerGroup;
+    private boolean hostnameVerificationEnabled = true;
 
     public Client(String remoteAddress, int remotePort, ClientCallback callback) {
-        this(remoteAddress, remotePort, null, null, callback);
+        this(remoteAddress, remotePort, callback, null, null);
     }
 
     public Client(String remoteAddress, int remotePort, ClientCallback callback, EventLoopGroup workerGroup) {
-        this(remoteAddress, remotePort, workerGroup, null, callback);
+        this(remoteAddress, remotePort, callback, null, workerGroup);
     }
 
     public Client(String remoteAddress, int remotePort, SslContext sslContext, ClientCallback callback) {
-        this(remoteAddress, remotePort, null, sslContext, callback);
+        this(remoteAddress, remotePort, callback, sslContext, null);
     }
 
-    public Client(String remoteAddress, int remotePort, EventLoopGroup workerGroup, SslContext sslContext,
-                  ClientCallback callback) {
-        this.remoteAddress = remoteAddress;
-        this.remotePort = remotePort;
-        this.sharedWorkerGroup = workerGroup != null;
-        this.workerGroup = sharedWorkerGroup
-                ? workerGroup
-                : new NioEventLoopGroup(new DefaultThreadFactory("unnamed-client-worker-group"));
-        this.callback = callback;
+    /**
+     * Creates a client. A supplied {@code workerGroup} stays owned by the caller, and {@code stop()} leaves it running.
+     *
+     * @param sslContext  enables TLS, or {@code null} for a plain connection
+     * @param workerGroup the event loops to share, or {@code null} for the client to manage its own
+     */
+    public Client(String remoteAddress, int remotePort, ClientCallback callback, SslContext sslContext,
+                  EventLoopGroup workerGroup) {
+        super(remoteAddress, remotePort);
+        this.callback = Objects.requireNonNull(callback, "callback");
         this.sslContext = sslContext;
+        this.workerGroup = workerGroup;
+        this.sharedWorkerGroup = workerGroup != null;
     }
 
-    public Client(ChannelHandlerContext channelHandlerContext) {
-        this.remoteAddress = ((InetSocketAddress) channelHandlerContext.channel().remoteAddress()).getAddress()
-                .getHostAddress();
-        this.remotePort = ((InetSocketAddress) channelHandlerContext.channel().remoteAddress()).getPort();
-        this.callback = null;
-        this.sharedWorkerGroup = true; // Managed by server/pipeline
-        this.workerGroup = null;
-        this.channelHandlerContext = channelHandlerContext;
-        this.sslContext = null;
+    public ProtocolSettings settings() {
+        return settings;
     }
 
     public boolean isSharedWorkerGroup() {
         return sharedWorkerGroup;
-    }
-
-    public long getLatency() {
-        return activeLatency;
-    }
-
-    public void updateLatency(long latency) {
-        this.activeLatency = latency;
-    }
-
-    public int getHeartbeatInterval() {
-        return this.heartbeatInterval;
-    }
-
-    public void setHeartbeatInterval(int seconds) {
-        this.heartbeatInterval = seconds;
-    }
-
-    public void addTrustedPackage(String packagePattern) {
-        this.trustedPackages.add(packagePattern);
-    }
-
-    public List<String> getTrustedPackages() {
-        return trustedPackages;
-    }
-
-    public int getMaxFrameLength() {
-        return maxFrameLength;
-    }
-
-    public void setMaxFrameLength(int maxFrameLength) {
-        this.maxFrameLength = maxFrameLength;
     }
 
     public boolean isHostnameVerificationEnabled() {
@@ -124,48 +79,40 @@ public class Client {
         this.hostnameVerificationEnabled = hostnameVerificationEnabled;
     }
 
+    ClientCallback getCallback() {
+        return callback;
+    }
+
     public void connect() throws InterruptedException {
-        Bootstrap bootstrap = new Bootstrap();
-        Channel channel = bootstrap
+        if (workerGroup == null) {
+            workerGroup = new NioEventLoopGroup(new DefaultThreadFactory(WORKER_THREAD_NAME));
+        }
+        Channel channel = new Bootstrap()
                 .group(workerGroup)
                 .channel(NioSocketChannel.class)
-                .handler(new StandardChannelInitializer(this))
-                .connect(remoteAddress, remotePort)
+                .handler(new ProtocolChannelInitializer(
+                        settings, this::configureTransportSecurity, () -> new ClientInboundHandler(this)))
+                .connect(getRemoteAddress(), getRemotePort())
                 .sync()
                 .channel();
-        this.channelHandlerContext = channel.pipeline().context(ClientInboundHandler.class);
+        attach(channel.pipeline().context(ClientInboundHandler.class));
     }
 
-    /**
-     * Queues a message for delivery. Failures after this call returns, such as a message that cannot be serialized,
-     * are reported through the {@code OnError} callback.
-     */
-    public void send(Message message) {
-        if (channelHandlerContext == null || !channelHandlerContext.channel().isActive()) {
-            throw new ConnectionUnavailableException(channelHandlerContext != null ? channelHandlerContext.channel() : null);
-        }
-        if (!channelHandlerContext.channel().isWritable()) {
-            throw new ConnectionBufferedException();
-        }
-        channelHandlerContext.writeAndFlush(message).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
-    }
-
-    public boolean isConnected() {
-        return channelHandlerContext != null && channelHandlerContext.channel().isActive();
-    }
-
-    /**
-     * Closes the connection. Waits for completion unless called from a callback, where waiting is not possible.
-     */
-    public void disconnect() throws InterruptedException {
-        ChannelHandlerContext context = channelHandlerContext;
-        if (context == null) {
+    private void configureTransportSecurity(SocketChannel channel) {
+        if (sslContext == null) {
             return;
         }
-        ChannelFuture closeFuture = context.close();
-        if (!context.executor().inEventLoop()) {
-            closeFuture.sync();
+        SslHandler sslHandler = sslContext.newHandler(channel.alloc(), getRemoteAddress(), getRemotePort());
+        if (hostnameVerificationEnabled) {
+            enableHostnameVerification(sslHandler.engine());
         }
+        channel.pipeline().addFirst(sslHandler);
+    }
+
+    private static void enableHostnameVerification(SSLEngine engine) {
+        SSLParameters parameters = engine.getSSLParameters();
+        parameters.setEndpointIdentificationAlgorithm(HOSTNAME_VERIFICATION_ALGORITHM);
+        engine.setSSLParameters(parameters);
     }
 
     /**
@@ -174,31 +121,14 @@ public class Client {
      */
     public void stop() throws InterruptedException {
         disconnect();
-        if (!sharedWorkerGroup && workerGroup != null) {
-            Future<?> shutdownFuture = workerGroup.shutdownGracefully();
-            if (!EventLoops.isCurrentThreadIn(workerGroup)) {
-                shutdownFuture.sync();
-            }
+        if (sharedWorkerGroup || workerGroup == null) {
+            return;
         }
-    }
-
-    public ClientCallback getCallback() {
-        return callback;
-    }
-
-    public void setCallback(ClientCallback callback) {
-        this.callback = callback;
-    }
-
-    public SslContext getSslContext() {
-        return sslContext;
-    }
-
-    public String getRemoteAddress() {
-        return remoteAddress;
-    }
-
-    public int getRemotePort() {
-        return remotePort;
+        boolean calledFromEventLoop = EventLoops.isCurrentThreadIn(workerGroup);
+        Future<?> shutdownFuture = workerGroup.shutdownGracefully();
+        workerGroup = null;
+        if (!calledFromEventLoop) {
+            shutdownFuture.sync();
+        }
     }
 }

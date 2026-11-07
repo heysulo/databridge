@@ -41,10 +41,14 @@ All messages must implement the `Message` interface and be Serializable.
 import dev.heysulo.databridge.core.common.Message;
 
 public class MyMessage implements Message {
-    public String content;
+    private final String content;
 
     public MyMessage(String content) {
         this.content = content;
+    }
+
+    public String getContent() {
+        return content;
     }
 }
 ```
@@ -57,31 +61,31 @@ Implement `ServerCallback` to handle events and start a `BasicServer`.
 import dev.heysulo.databridge.core.server.BasicServer;
 import dev.heysulo.databridge.core.server.Server;
 import dev.heysulo.databridge.core.server.callback.ServerCallback;
-import dev.heysulo.databridge.core.client.Client;
+import dev.heysulo.databridge.core.common.Connection;
 import dev.heysulo.databridge.core.common.Message;
 
 public class MyServer {
     public static void main(String[] args) throws InterruptedException {
         ServerCallback callback = new ServerCallback() {
             @Override
-            public void OnConnect(Server server, Client client) {
-                System.out.println("Client connected: " + client);
+            public void onConnect(Server server, Connection connection) {
+                System.out.println("Client connected: " + connection.getRemoteAddress());
             }
 
             @Override
-            public void OnDisconnect(Server server, Client client) {
+            public void onDisconnect(Server server, Connection connection) {
                 System.out.println("Client disconnected");
             }
 
             @Override
-            public void OnMessage(Server server, Client client, Message msg) {
-                if (msg instanceof MyMessage) {
-                    System.out.println("Received: " + ((MyMessage) msg).content);
+            public void onMessage(Server server, Connection connection, Message message) {
+                if (message instanceof MyMessage) {
+                    System.out.println("Received: " + ((MyMessage) message).getContent());
                 }
             }
 
             @Override
-            public void OnError(Server server, Client client, Throwable cause) {
+            public void onError(Server server, Connection connection, Throwable cause) {
                 cause.printStackTrace();
             }
         };
@@ -89,7 +93,7 @@ public class MyServer {
         BasicServer server = new BasicServer(8080, callback);
         
         // IMPORTANT: Whitelist your message packages for security
-        server.addTrustedPackage("com.mycompany.messages.**");
+        server.settings().addTrustedPackage("com.mycompany.messages.**");
         
         server.start();
     }
@@ -109,23 +113,23 @@ public class MyClient {
     public static void main(String[] args) throws InterruptedException {
         ClientCallback callback = new ClientCallback() {
             @Override
-            public void OnConnect(Client client) {
+            public void onConnect(Client client) {
                 System.out.println("Connected to server");
                 client.send(new MyMessage("Hello World!"));
             }
 
             @Override
-            public void OnDisconnect(Client client) {
+            public void onDisconnect(Client client) {
                 System.out.println("Disconnected");
             }
 
             @Override
-            public void OnMessage(Client client, Message msg) {
+            public void onMessage(Client client, Message message) {
                 // Handle responses
             }
 
             @Override
-            public void OnError(Client client, Throwable cause) {
+            public void onError(Client client, Throwable cause) {
                 cause.printStackTrace();
             }
         };
@@ -138,13 +142,13 @@ public class MyClient {
 
 ## Security Metrics
 
-- **Trusted Packages**: By default, only `java.lang.*`, `dev.heysulo.**`, and a fixed set of common `java.util` collections and value types are allowed (see `MessageDecoder.DEFAULT_TRUSTED_PACKAGES`). Other `java.util` classes are rejected. Use `addTrustedPackage()` on both the client and the server to allow your own domain classes.
-- **Handshake**: Until the handshake completes, only handshake messages of up to 4 KB are accepted, so unauthenticated peers cannot reach the trusted packages. Connections that do not finish within `setHandshakeTimeout()` (10 seconds by default) are closed.
+- **Trusted Packages**: By default, only `java.lang.*`, `dev.heysulo.**`, and a fixed set of common `java.util` collections and value types are allowed (see `MessageDecoder.DEFAULT_TRUSTED_PACKAGES`). Other `java.util` classes are rejected. Use `settings().addTrustedPackage()` on both the client and the server to allow your own domain classes.
+- **Handshake**: Until the handshake completes, only handshake messages of up to 4 KB are accepted, so unauthenticated peers cannot reach the trusted packages. Connections that do not finish within `Server.setHandshakeTimeout()` (10 seconds by default) are closed.
 - **Deserialization Limits**: Every frame is limited in object depth, reference count, size, and array length. A frame that breaks these limits or the allowlist closes the connection.
 - **SSL**: Use `SecureServer` and pass an internal `SslContext` for encrypted communications. Clients check that the server certificate matches the address they connect to. `Client.setHostnameVerificationEnabled(false)` turns this off, but allows impersonation by anyone holding a trusted certificate.
 
 ## Error Handling
 
-- `send()` queues the message and returns. Later failures, such as a message that cannot be serialized or exceeds the maximum frame length, are reported through `OnError`.
+- `send()` queues the message and returns. Later failures, such as a message that cannot be serialized or exceeds the maximum frame length, are reported through `onError`.
 - `stop()` and `disconnect()` can be called from callbacks. There they return without waiting, and shutdown finishes after the callback returns.
 - Callbacks run on Netty event loops, so blocking in one delays every connection on that loop.

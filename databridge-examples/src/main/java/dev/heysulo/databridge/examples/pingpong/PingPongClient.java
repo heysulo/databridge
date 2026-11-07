@@ -6,10 +6,21 @@ import dev.heysulo.databridge.core.common.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Random;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
 public class PingPongClient implements Runnable, ClientCallback {
     private static final Logger logger = LoggerFactory.getLogger(PingPongClient.class);
+    private static final long MIN_PING_DELAY_MILLIS = 1000;
+    private static final long PING_DELAY_JITTER_MILLIS = 1000;
+    private static final ScheduledExecutorService SCHEDULER = Executors.newSingleThreadScheduledExecutor(task -> {
+        Thread thread = new Thread(task, "ping-scheduler");
+        thread.setDaemon(true);
+        return thread;
+    });
+
     private final String host;
     private final int port;
     private final int clientId;
@@ -25,7 +36,7 @@ public class PingPongClient implements Runnable, ClientCallback {
     public void run() {
         try {
             this.client = new Client(host, port, this);
-            this.client.addTrustedPackage("dev.heysulo.databridge.examples.pingpong.**");
+            this.client.settings().addTrustedPackage("dev.heysulo.databridge.examples.pingpong.**");
             this.client.connect();
         } catch (Exception e) {
             logger.error("[Client-{}] Startup Error", clientId, e);
@@ -33,35 +44,34 @@ public class PingPongClient implements Runnable, ClientCallback {
     }
 
     @Override
-    public void OnConnect(Client client) {
+    public void onConnect(Client client) {
         logger.info("[Client-{}] Connected", clientId);
         client.send(new PingMessage());
     }
 
     @Override
-    public void OnDisconnect(Client client) {
+    public void onDisconnect(Client client) {
         logger.info("[Client-{}] Disconnected", clientId);
     }
 
     @Override
-    public void OnMessage(Client client, Message msg) {
+    public void onMessage(Client client, Message msg) {
         if (msg instanceof PongMessage) {
             PongMessage pong = (PongMessage) msg;
-            long rtt = System.currentTimeMillis() - pong.originalTimestamp;
-            logger.info("[Client-{}] RTT: {}ms, Server Random: {}", clientId, rtt, pong.randomValue);
-
-            // Schedule next ping
-            try {
-                Thread.sleep(1000 + new Random().nextInt(1000));
-                client.send(new PingMessage());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            long rtt = System.currentTimeMillis() - pong.getOriginalTimestamp();
+            logger.info("[Client-{}] RTT: {}ms, Server Random: {}", clientId, rtt, pong.getRandomValue());
+            scheduleNextPing(client);
         }
     }
 
     @Override
-    public void OnError(Client client, Throwable cause) {
+    public void onError(Client client, Throwable cause) {
         logger.error("[Client-{}] Error", clientId, cause);
+    }
+
+    // Callbacks run on the event loop, so the delay must not block here
+    private void scheduleNextPing(Client client) {
+        long delayMillis = MIN_PING_DELAY_MILLIS + ThreadLocalRandom.current().nextLong(PING_DELAY_JITTER_MILLIS);
+        SCHEDULER.schedule(() -> client.send(new PingMessage()), delayMillis, TimeUnit.MILLISECONDS);
     }
 }

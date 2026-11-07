@@ -1,79 +1,83 @@
 package dev.heysulo.databridge.core.server;
 
-import dev.heysulo.databridge.core.client.Client;
+import dev.heysulo.databridge.core.common.Connection;
 import dev.heysulo.databridge.core.common.EventLoops;
-import dev.heysulo.databridge.core.common.MessageDecoder;
+import dev.heysulo.databridge.core.common.ProtocolChannelInitializer;
+import dev.heysulo.databridge.core.common.ProtocolSettings;
 import dev.heysulo.databridge.core.server.callback.ServerCallback;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.ServerSocketChannel;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
-import io.netty.handler.ssl.SslContext;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
+import java.util.LongSummaryStatistics;
+import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
 public abstract class Server {
-    public static final List<String> DEFAULT_TRUSTED_PACKAGES = MessageDecoder.DEFAULT_TRUSTED_PACKAGES;
 
-    protected final int port;
-    protected final ServerCallback callback;
-    protected final EventLoopGroup bossGroup;
-    protected final EventLoopGroup workerGroup;
+    public static final Duration DEFAULT_HANDSHAKE_TIMEOUT = Duration.ofSeconds(10);
+
+    private static final int MAX_PORT = 65535;
+    private static final String BOSS_THREAD_NAME = "databridge-server-boss";
+    private static final String WORKER_THREAD_NAME = "databridge-server-worker";
+
+    private final int port;
+    private final ServerCallback callback;
     private final boolean sharedBossGroup;
     private final boolean sharedWorkerGroup;
-    protected volatile Channel serverChannelInstance;
-    protected final List<String> trustedPackages = new CopyOnWriteArrayList<>(DEFAULT_TRUSTED_PACKAGES);
-    protected int maxFrameLength = MessageDecoder.DEFAULT_MAX_FRAME_LENGTH;
-
-    // Per-client tracking and metrics
-    protected final Set<Client> connectedClients = ConcurrentHashMap.newKeySet();
+    private final ProtocolSettings settings = new ProtocolSettings();
     private final ChannelGroup clientChannels = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
-    protected final AtomicLong activeConnections = new AtomicLong();
-    protected final AtomicLong totalMessages = new AtomicLong();
-    protected Class<? extends ServerSocketChannel> serverChannel = NioServerSocketChannel.class;
-    protected volatile long activeLatency = -1; // -1 means unknown
+    private final Set<Connection> connections = ConcurrentHashMap.newKeySet();
+    private final AtomicLong activeConnections = new AtomicLong();
+    private final AtomicLong totalMessages = new AtomicLong();
+    private EventLoopGroup bossGroup;
+    private EventLoopGroup workerGroup;
+    private Channel listenerChannel;
+    private Class<? extends ServerSocketChannel> channelType = NioServerSocketChannel.class;
+    private volatile Duration handshakeTimeout = DEFAULT_HANDSHAKE_TIMEOUT;
 
-    // Config
-    protected int heartbeatInterval = 30;
-    protected int handshakeTimeout = 10;
-
-    public Server(int port, ServerCallback callback) {
+    protected Server(int port, ServerCallback callback) {
         this(port, callback, null, null);
     }
 
-    public Server(int port, ServerCallback callback, EventLoopGroup bossGroup, EventLoopGroup workerGroup) {
-        if (!validatePort(port)) {
+    /**
+     * Creates a server. Supplied event loop groups stay owned by the caller, and {@code stop()} leaves them running.
+     *
+     * @param bossGroup   the event loops accepting connections, or {@code null} for the server to manage its own
+     * @param workerGroup the event loops serving connections, or {@code null} for the server to manage its own
+     */
+    protected Server(int port, ServerCallback callback, EventLoopGroup bossGroup, EventLoopGroup workerGroup) {
+        if (port <= 0 || port > MAX_PORT) {
             throw new IllegalArgumentException("Invalid port number");
         }
-        if (callback == null) {
-            throw new IllegalArgumentException("Callback cannot be null");
-        }
         this.port = port;
-        this.callback = callback;
+        this.callback = Objects.requireNonNull(callback, "callback");
+        this.bossGroup = bossGroup;
+        this.workerGroup = workerGroup;
         this.sharedBossGroup = bossGroup != null;
         this.sharedWorkerGroup = workerGroup != null;
-        this.bossGroup = sharedBossGroup
-                ? bossGroup
-                : new NioEventLoopGroup(new DefaultThreadFactory("unnamed-server-boss-group"));
+    }
 
-        this.workerGroup = sharedWorkerGroup
-                ? workerGroup
-                : new NioEventLoopGroup(new DefaultThreadFactory("unnamed-server-client-worker-group"));
+    public ProtocolSettings settings() {
+        return settings;
     }
 
     public boolean isSharedBossGroup() {
@@ -84,79 +88,22 @@ public abstract class Server {
         return sharedWorkerGroup;
     }
 
-    public void addConnectedClient(Client client) {
-        if (client != null) {
-            connectedClients.add(client);
-        }
-    }
-
-    public void removeConnectedClient(Client client) {
-        if (client != null) {
-            connectedClients.remove(client);
-        }
-    }
-
-    public Collection<Client> getConnectedClients() {
-        return Collections.unmodifiableCollection(connectedClients);
-    }
-
-    public long getAverageLatency() {
-        long total = 0;
-        int count = 0;
-        for (Client client : connectedClients) {
-            long lat = client.getLatency();
-            if (lat >= 0) {
-                total += lat;
-                count++;
-            }
-        }
-        return count > 0 ? (total / count) : -1;
-    }
-
-    public long getLatency() {
-        return activeLatency;
-    }
-
-    public void updateLatency(long latency) {
-        this.activeLatency = latency;
-    }
-
-    public int getHeartbeatInterval() {
-        return this.heartbeatInterval;
-    }
-
-    public void setHeartbeatInterval(int seconds) {
-        this.heartbeatInterval = seconds;
-    }
-
-    public int getHandshakeTimeout() {
-        return this.handshakeTimeout;
+    public Collection<Connection> getConnections() {
+        return Collections.unmodifiableCollection(connections);
     }
 
     /**
-     * Sets how long, in seconds, a new connection may take to complete the handshake before it is closed.
+     * Returns the mean latency of connections that have measured one, or empty if none have.
      */
-    public void setHandshakeTimeout(int seconds) {
-        if (seconds <= 0) {
-            throw new IllegalArgumentException("Handshake timeout must be positive");
-        }
-        this.handshakeTimeout = seconds;
-    }
-
-    public void addTrustedPackage(String packagePattern) {
-        this.trustedPackages.add(packagePattern);
-    }
-
-    public List<String> getTrustedPackages() {
-        return trustedPackages;
-    }
-
-    public int getMaxFrameLength() {
-        return maxFrameLength;
-    }
-
-    public void setMaxFrameLength(int maxFrameLength) {
-        this.maxFrameLength = maxFrameLength;
+    public OptionalLong getAverageLatencyMillis() {
+        LongSummaryStatistics latencies = connections.stream()
+                .map(Connection::getLatencyMillis)
+                .filter(OptionalLong::isPresent)
+                .mapToLong(OptionalLong::getAsLong)
+                .summaryStatistics();
+        return latencies.getCount() > 0
+                ? OptionalLong.of(latencies.getSum() / latencies.getCount())
+                : OptionalLong.empty();
     }
 
     public long getActiveConnections() {
@@ -167,40 +114,67 @@ public abstract class Server {
         return totalMessages.get();
     }
 
-    void trackChannel(Channel channel) {
+    public Duration getHandshakeTimeout() {
+        return handshakeTimeout;
+    }
+
+    /**
+     * Sets how long a new connection may take to complete the handshake before it is closed.
+     */
+    public void setHandshakeTimeout(Duration handshakeTimeout) {
+        Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
+        if (handshakeTimeout.isZero() || handshakeTimeout.isNegative()) {
+            throw new IllegalArgumentException("Handshake timeout must be positive");
+        }
+        this.handshakeTimeout = handshakeTimeout;
+    }
+
+    public void setChannelType(Class<? extends ServerSocketChannel> channelType) {
+        this.channelType = Objects.requireNonNull(channelType, "channelType");
+    }
+
+    ServerCallback getCallback() {
+        return callback;
+    }
+
+    void channelOpened(Channel channel) {
+        activeConnections.incrementAndGet();
         clientChannels.add(channel);
     }
 
-    public void incrementConnections() {
-        activeConnections.incrementAndGet();
+    void connectionEstablished(Connection connection) {
+        connections.add(connection);
     }
 
-    public void decrementConnections() {
-        activeConnections.decrementAndGet();
-    }
-
-    public void incrementMessages() {
+    void messageReceived() {
         totalMessages.incrementAndGet();
     }
 
-    public boolean validatePort(int port) {
-        return port > 0 && port <= 65535;
+    void channelClosed(Connection connection) {
+        activeConnections.decrementAndGet();
+        connections.remove(connection);
     }
 
-    public void setServerChannel(Class<? extends ServerSocketChannel> serverChannel) {
-        if (serverChannel == null) {
-            throw new IllegalArgumentException("ServerChannel class cannot be null");
+    /**
+     * Installs any security handlers on a new connection. Plain servers install none.
+     */
+    protected void configureTransportSecurity(SocketChannel channel) {
+    }
+
+    public void start() throws InterruptedException {
+        if (bossGroup == null) {
+            bossGroup = new NioEventLoopGroup(new DefaultThreadFactory(BOSS_THREAD_NAME));
         }
-        this.serverChannel = serverChannel;
-    }
-
-    public abstract void start() throws InterruptedException;
-
-    protected void start(ServerBootstrap bootstrap) throws InterruptedException {
-        this.serverChannelInstance = bootstrap.channel(serverChannel)
+        if (workerGroup == null) {
+            workerGroup = new NioEventLoopGroup(new DefaultThreadFactory(WORKER_THREAD_NAME));
+        }
+        listenerChannel = new ServerBootstrap()
+                .channel(channelType)
                 .group(bossGroup, workerGroup)
-                .handler(new LoggingHandler(LogLevel.DEBUG)) // TODO: Make it configurable
-                .childOption(io.netty.channel.ChannelOption.SO_KEEPALIVE, true)
+                .handler(new LoggingHandler(LogLevel.DEBUG))
+                .childOption(ChannelOption.SO_KEEPALIVE, true)
+                .childHandler(new ProtocolChannelInitializer(
+                        settings, this::configureTransportSecurity, () -> new ServerInboundHandler(this)))
                 .bind(port)
                 .sync()
                 .channel();
@@ -211,30 +185,26 @@ public abstract class Server {
      * called from a callback, in which case shutdown continues after the callback returns.
      */
     public void stop() throws InterruptedException {
-        boolean canWait = !EventLoops.isCurrentThreadIn(bossGroup) && !EventLoops.isCurrentThreadIn(workerGroup);
-        if (serverChannelInstance != null) {
-            awaitIf(canWait, serverChannelInstance.close());
+        if (listenerChannel == null) {
+            return;
         }
+        boolean canWait = !EventLoops.isCurrentThreadIn(bossGroup) && !EventLoops.isCurrentThreadIn(workerGroup);
+        awaitIf(canWait, listenerChannel.close());
         awaitIf(canWait, clientChannels.close());
         if (!sharedBossGroup) {
             awaitIf(canWait, bossGroup.shutdownGracefully());
+            bossGroup = null;
         }
         if (!sharedWorkerGroup) {
             awaitIf(canWait, workerGroup.shutdownGracefully());
+            workerGroup = null;
         }
+        listenerChannel = null;
     }
 
     private static void awaitIf(boolean canWait, Future<?> future) throws InterruptedException {
         if (canWait) {
             future.await();
         }
-    }
-
-    protected ServerCallback getCallback() {
-        return callback;
-    }
-
-    public SslContext getSslContext() {
-        return null; // Default implementation returns null
     }
 }

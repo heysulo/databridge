@@ -5,6 +5,7 @@ import dev.heysulo.databridge.core.client.callback.ClientCallback;
 import dev.heysulo.databridge.core.common.HandshakeAckMessage;
 import dev.heysulo.databridge.core.common.HandshakeMessage;
 import dev.heysulo.databridge.core.common.HeartbeatMessage;
+import dev.heysulo.databridge.core.common.Connection;
 import dev.heysulo.databridge.core.common.Message;
 import dev.heysulo.databridge.core.common.MessageDecoder;
 import dev.heysulo.databridge.core.server.BasicServer;
@@ -23,6 +24,7 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import java.time.Duration;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
@@ -90,21 +92,21 @@ public class ProtocolHardeningTest {
         final Set<Throwable> errors = ConcurrentHashMap.newKeySet();
 
         @Override
-        public void OnConnect(Server server, Client client) {
+        public void onConnect(Server server, Connection client) {
             connects.incrementAndGet();
         }
 
         @Override
-        public void OnDisconnect(Server server, Client client) {
+        public void onDisconnect(Server server, Connection client) {
         }
 
         @Override
-        public void OnMessage(Server server, Client client, Message msg) {
+        public void onMessage(Server server, Connection client, Message msg) {
             messages.incrementAndGet();
         }
 
         @Override
-        public void OnError(Server server, Client client, Throwable cause) {
+        public void onError(Server server, Connection client, Throwable cause) {
             errors.add(cause);
         }
     }
@@ -114,20 +116,20 @@ public class ProtocolHardeningTest {
         final Set<Throwable> errors = ConcurrentHashMap.newKeySet();
 
         @Override
-        public void OnConnect(Client client) {
+        public void onConnect(Client client) {
             connects.incrementAndGet();
         }
 
         @Override
-        public void OnDisconnect(Client client) {
+        public void onDisconnect(Client client) {
         }
 
         @Override
-        public void OnMessage(Client client, Message msg) {
+        public void onMessage(Client client, Message msg) {
         }
 
         @Override
-        public void OnError(Client client, Throwable cause) {
+        public void onError(Client client, Throwable cause) {
             errors.add(cause);
         }
     }
@@ -146,7 +148,7 @@ public class ProtocolHardeningTest {
     public void startServer() throws Exception {
         port = freePort();
         server = new BasicServer(port, serverCallback, sharedGroup, sharedGroup);
-        server.addTrustedPackage(ProtocolHardeningTest.class.getName() + "*");
+        server.settings().addTrustedPackage(ProtocolHardeningTest.class.getName() + "*");
         serverCallback.connects.set(0);
         serverCallback.messages.set(0);
         serverCallback.errors.clear();
@@ -226,7 +228,7 @@ public class ProtocolHardeningTest {
     @Test(timeOut = 20_000)
     public void heartbeatsCannotReplaceTheHandshake() throws Exception {
         try (Socket socket = connect()) {
-            write(socket, frame(serialize(new HeartbeatMessage(1, false))));
+            write(socket, frame(serialize(HeartbeatMessage.request())));
             assertClosedByServer(socket);
         }
         Assert.assertEquals(serverCallback.connects.get(), 0);
@@ -234,7 +236,7 @@ public class ProtocolHardeningTest {
 
     @Test(timeOut = 20_000)
     public void silentConnectionIsClosedAtHandshakeTimeout() throws Exception {
-        server.setHandshakeTimeout(1);
+        server.setHandshakeTimeout(Duration.ofSeconds(1));
         try (Socket socket = connect()) {
             assertClosedByServer(socket);
         }
@@ -242,7 +244,7 @@ public class ProtocolHardeningTest {
 
     @Test(timeOut = 20_000)
     public void partialFrameDoesNotExtendHandshakeTimeout() throws Exception {
-        server.setHandshakeTimeout(1);
+        server.setHandshakeTimeout(Duration.ofSeconds(1));
         try (Socket socket = connect()) {
             write(socket, new byte[]{0});
             assertClosedByServer(socket);
@@ -251,7 +253,7 @@ public class ProtocolHardeningTest {
 
     @Test(timeOut = 20_000)
     public void completedHandshakeOutlivesHandshakeTimeout() throws Exception {
-        server.setHandshakeTimeout(1);
+        server.setHandshakeTimeout(Duration.ofSeconds(1));
         try (Socket socket = connect()) {
             handshake(socket);
             socket.setSoTimeout(1_500);
@@ -308,12 +310,12 @@ public class ProtocolHardeningTest {
         int callbackPort = freePort();
         BasicServer throwingServer = new BasicServer(callbackPort, new RecordingServerCallback() {
             @Override
-            public void OnMessage(Server server, Client client, Message msg) {
+            public void onMessage(Server server, Connection client, Message msg) {
                 messages.incrementAndGet();
                 throw new IllegalArgumentException("application bug");
             }
         }, sharedGroup, sharedGroup);
-        throwingServer.addTrustedPackage(ProtocolHardeningTest.class.getName() + "*");
+        throwingServer.settings().addTrustedPackage(ProtocolHardeningTest.class.getName() + "*");
         throwingServer.start();
         try (Socket socket = new Socket("127.0.0.1", callbackPort)) {
             handshake(socket);
@@ -340,7 +342,7 @@ public class ProtocolHardeningTest {
     public void oversizedSendIsReportedToClientCallback() throws Exception {
         RecordingClientCallback callback = new RecordingClientCallback();
         Client client = new Client("127.0.0.1", port, callback, sharedGroup);
-        client.setMaxFrameLength(1024);
+        client.settings().setMaxFrameLength(1024);
         clients.add(client);
         client.connect();
         waitUntil(() -> callback.connects.get() == 1, "the client connects");
@@ -380,7 +382,7 @@ public class ProtocolHardeningTest {
         CompletableFuture<Throwable> result = new CompletableFuture<>();
         Client client = new Client("127.0.0.1", port, new RecordingClientCallback() {
             @Override
-            public void OnConnect(Client client) {
+            public void onConnect(Client client) {
                 try {
                     client.stop();
                     result.complete(null);
@@ -400,7 +402,7 @@ public class ProtocolHardeningTest {
         CompletableFuture<Throwable> result = new CompletableFuture<>();
         BasicServer stoppingServer = new BasicServer(callbackPort, new RecordingServerCallback() {
             @Override
-            public void OnConnect(Server server, Client client) {
+            public void onConnect(Server server, Connection client) {
                 try {
                     server.stop();
                     result.complete(null);
@@ -457,7 +459,7 @@ public class ProtocolHardeningTest {
 
     @Test(expectedExceptions = IllegalArgumentException.class)
     public void handshakeTimeoutMustBePositive() {
-        server.setHandshakeTimeout(0);
+        server.setHandshakeTimeout(Duration.ZERO);
     }
 
     private static HashSet<Object> nestedSets(int depth) {

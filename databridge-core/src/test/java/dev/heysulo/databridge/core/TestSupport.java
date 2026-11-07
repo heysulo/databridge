@@ -1,6 +1,6 @@
 package dev.heysulo.databridge.core;
 
-import dev.heysulo.databridge.core.client.Client;
+import dev.heysulo.databridge.core.common.Connection;
 import dev.heysulo.databridge.core.common.Message;
 import dev.heysulo.databridge.core.exception.ConnectionBufferedException;
 import org.testng.Assert;
@@ -41,11 +41,11 @@ public final class TestSupport {
     /**
      * Sends a message, waiting out backpressure in the way a real sender must.
      */
-    public static void sendWithBackpressure(Client client, Message message) throws InterruptedException {
+    public static void sendWithBackpressure(Connection connection, Message message) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(TIMEOUT_MILLIS);
         while (true) {
             try {
-                client.send(message);
+                connection.send(message);
                 return;
             } catch (ConnectionBufferedException buffered) {
                 Assert.assertTrue(System.nanoTime() < deadline, "Timed out waiting for the send buffer to drain");

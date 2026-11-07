@@ -9,6 +9,8 @@ import io.netty.util.concurrent.DefaultThreadFactory;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.time.Duration;
+
 import static dev.heysulo.databridge.core.TestSupport.freePort;
 import static dev.heysulo.databridge.core.TestSupport.waitUntil;
 
@@ -74,36 +76,36 @@ public class LifecycleAndMetricsTest {
         int port = freePort();
         TestServerCallback serverCallback = new TestServerCallback();
         BasicServer server = new BasicServer(port, serverCallback);
-        server.setHeartbeatInterval(1);
+        server.settings().setHeartbeatInterval(Duration.ofSeconds(1));
         server.start();
 
         TestClientCallback clientCallback1 = new TestClientCallback();
         Client client1 = new Client("127.0.0.1", port, clientCallback1);
-        client1.setHeartbeatInterval(1);
+        client1.settings().setHeartbeatInterval(Duration.ofSeconds(1));
         client1.connect();
 
         TestClientCallback clientCallback2 = new TestClientCallback();
         Client client2 = new Client("127.0.0.1", port, clientCallback2);
-        client2.setHeartbeatInterval(1);
+        client2.settings().setHeartbeatInterval(Duration.ofSeconds(1));
         client2.connect();
 
-        waitUntil(() -> server.getConnectedClients().size() == 2, "the server tracks 2 connected clients");
+        waitUntil(() -> server.getConnections().size() == 2, "the server tracks 2 connected clients");
 
         // Each server-side client representation must have its own tracked latency
-        waitUntil(() -> server.getConnectedClients().stream().allMatch(client -> client.getLatency() >= 0),
+        waitUntil(() -> server.getConnections().stream().allMatch(client -> client.getLatencyMillis().isPresent()),
                 "each client session has its own measured latency");
-        Assert.assertTrue(server.getAverageLatency() >= 0, "Server average latency should be computed");
+        Assert.assertTrue(server.getAverageLatencyMillis().isPresent(), "Server average latency should be computed");
 
-        waitUntil(() -> client1.getLatency() >= 0, "client 1 measures latency");
-        waitUntil(() -> client2.getLatency() >= 0, "client 2 measures latency");
+        waitUntil(() -> client1.getLatencyMillis().isPresent(), "client 1 measures latency");
+        waitUntil(() -> client2.getLatencyMillis().isPresent(), "client 2 measures latency");
 
         // Disconnect first client
         client1.disconnect();
-        waitUntil(() -> server.getConnectedClients().size() == 1, "the connected client count decreases to 1");
+        waitUntil(() -> server.getConnections().size() == 1, "the connected client count decreases to 1");
 
         // Disconnect second client
         client2.disconnect();
-        waitUntil(() -> server.getConnectedClients().isEmpty(), "the connected client count decreases to 0");
+        waitUntil(() -> server.getConnections().isEmpty(), "the connected client count decreases to 0");
 
         server.stop();
     }
