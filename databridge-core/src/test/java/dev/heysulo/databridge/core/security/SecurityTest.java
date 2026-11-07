@@ -82,7 +82,8 @@ public class SecurityTest {
             testClient.send(message);
             waitUntil(() -> serverCallback.exceptionCaught != null, "the server reports the rejection");
 
-            Assert.assertEquals(serverCallback.messageReceived.size(), 0, "PriorityQueue message should be blocked by default");
+            Assert.assertEquals(serverCallback.messageReceived.size(), 0,
+                    "PriorityQueue message should be blocked by default");
 
             Throwable e = serverCallback.exceptionCaught;
             boolean found = false;

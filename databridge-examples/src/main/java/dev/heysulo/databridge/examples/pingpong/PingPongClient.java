@@ -12,7 +12,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 public class PingPongClient implements Runnable, ClientCallback {
-    private static final Logger logger = LoggerFactory.getLogger(PingPongClient.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(PingPongClient.class);
     private static final long MIN_PING_DELAY_MILLIS = 1000;
     private static final long PING_DELAY_JITTER_MILLIS = 1000;
     private static final ScheduledExecutorService SCHEDULER = Executors.newSingleThreadScheduledExecutor(task -> {
@@ -39,19 +39,19 @@ public class PingPongClient implements Runnable, ClientCallback {
             this.client.settings().addTrustedPackage("dev.heysulo.databridge.examples.pingpong.**");
             this.client.connect();
         } catch (Exception e) {
-            logger.error("[Client-{}] Startup Error", clientId, e);
+            LOGGER.error("[Client-{}] Startup Error", clientId, e);
         }
     }
 
     @Override
     public void onConnect(Client client) {
-        logger.info("[Client-{}] Connected", clientId);
+        LOGGER.info("[Client-{}] Connected", clientId);
         client.send(new PingMessage());
     }
 
     @Override
     public void onDisconnect(Client client) {
-        logger.info("[Client-{}] Disconnected", clientId);
+        LOGGER.info("[Client-{}] Disconnected", clientId);
     }
 
     @Override
@@ -59,14 +59,14 @@ public class PingPongClient implements Runnable, ClientCallback {
         if (msg instanceof PongMessage) {
             PongMessage pong = (PongMessage) msg;
             long rtt = System.currentTimeMillis() - pong.getOriginalTimestamp();
-            logger.info("[Client-{}] RTT: {}ms, Server Random: {}", clientId, rtt, pong.getRandomValue());
+            LOGGER.info("[Client-{}] RTT: {}ms, Server Random: {}", clientId, rtt, pong.getRandomValue());
             scheduleNextPing(client);
         }
     }
 
     @Override
     public void onError(Client client, Throwable cause) {
-        logger.error("[Client-{}] Error", clientId, cause);
+        LOGGER.error("[Client-{}] Error", clientId, cause);
     }
 
     // Callbacks run on the event loop, so the delay must not block here

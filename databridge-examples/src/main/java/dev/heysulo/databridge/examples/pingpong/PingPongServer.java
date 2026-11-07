@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Random;
 
 public class PingPongServer implements ServerCallback {
-    private static final Logger logger = LoggerFactory.getLogger(PingPongServer.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(PingPongServer.class);
     private static final int MAX_RANDOM_VALUE = 100;
     private final BasicServer server;
     private final Random random = new Random();
@@ -22,25 +22,25 @@ public class PingPongServer implements ServerCallback {
     }
 
     public void start() throws InterruptedException {
-        logger.info("Starting server...");
+        LOGGER.info("Starting server...");
         server.start();
-        logger.info("Server started.");
+        LOGGER.info("Server started.");
     }
 
     public void stop() throws InterruptedException {
-        logger.info("Stopping server...");
+        LOGGER.info("Stopping server...");
         server.stop();
-        logger.info("Server stopped.");
+        LOGGER.info("Server stopped.");
     }
 
     @Override
     public void onConnect(Server server, Connection client) {
-        logger.info("Client connected: {}", client);
+        LOGGER.info("Client connected: {}", client);
     }
 
     @Override
     public void onDisconnect(Server server, Connection client) {
-        logger.info("Client disconnected");
+        LOGGER.info("Client disconnected");
     }
 
     @Override
@@ -48,13 +48,13 @@ public class PingPongServer implements ServerCallback {
         if (msg instanceof PingMessage) {
             PingMessage ping = (PingMessage) msg;
             int rand = random.nextInt(MAX_RANDOM_VALUE);
-            logger.debug("Received Ping from {}, replying with random {}", client, rand);
+            LOGGER.debug("Received Ping from {}, replying with random {}", client, rand);
             client.send(new PongMessage(ping.getTimestamp(), rand));
         }
     }
 
     @Override
     public void onError(Server server, Connection client, Throwable cause) {
-        logger.error("Error with client {}", client, cause);
+        LOGGER.error("Error with client {}", client, cause);
     }
 }

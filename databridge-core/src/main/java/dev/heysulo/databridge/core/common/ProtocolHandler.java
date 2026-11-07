@@ -6,6 +6,8 @@ import io.netty.handler.codec.DecoderException;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.util.concurrent.ScheduledFuture;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
@@ -19,11 +21,13 @@ import java.util.concurrent.TimeUnit;
  */
 public abstract class ProtocolHandler extends ChannelInboundHandlerAdapter {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ProtocolHandler.class);
     private static final long NANOS_PER_MILLI = TimeUnit.MILLISECONDS.toNanos(1);
 
     private final ProtocolSettings settings;
     private final Class<? extends Message> handshakeType;
     private boolean established = false;
+    private ScheduledFuture<?> handshakeTimeoutTask;
     private ScheduledFuture<?> heartbeatTask;
 
     protected ProtocolHandler(ProtocolSettings settings, Class<? extends Message> handshakeType) {
@@ -46,6 +50,8 @@ public abstract class ProtocolHandler extends ChannelInboundHandlerAdapter {
      */
     protected final void establish(ChannelHandlerContext ctx) {
         established = true;
+        handshakeTimeoutTask.cancel(false);
+        LOGGER.debug("Connection to {} established", describePeer());
         MessageDecoder decoder = ctx.pipeline().get(MessageDecoder.class);
         if (decoder != null) {
             decoder.completeHandshake();
@@ -54,6 +60,7 @@ public abstract class ProtocolHandler extends ChannelInboundHandlerAdapter {
     }
 
     protected final void rejectProtocolViolation(ChannelHandlerContext ctx, String reason) {
+        logRejection("Closing connection to {}: {}", describePeer(), reason);
         ctx.close();
         onError(new IllegalStateException(reason));
     }
@@ -61,6 +68,10 @@ public abstract class ProtocolHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
         connection().attach(ctx);
+        handshakeTimeoutTask = ctx.executor().schedule(
+                () -> rejectProtocolViolation(ctx, "Handshake timed out"),
+                settings.getHandshakeTimeout().toMillis(),
+                TimeUnit.MILLISECONDS);
         super.channelActive(ctx);
     }
 
@@ -126,6 +137,7 @@ public abstract class ProtocolHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         if (cause instanceof DecoderException) {
+            logRejection("Closing connection to {} after a decoding failure: {}", describePeer(), cause.toString());
             ctx.close(); // The inbound stream can no longer be trusted
         }
         onError(cause);
@@ -133,12 +145,27 @@ public abstract class ProtocolHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        handshakeTimeoutTask.cancel(false);
         if (heartbeatTask != null) {
             heartbeatTask.cancel(false);
         }
         if (established) {
+            LOGGER.debug("Connection to {} closed", describePeer());
             onDisconnected();
         }
         super.channelInactive(ctx);
+    }
+
+    // Peers that never authenticated stay at debug, so scanners cannot flood the logs
+    private void logRejection(String format, String peer, String detail) {
+        if (established) {
+            LOGGER.warn(format, peer, detail);
+        } else {
+            LOGGER.debug(format, peer, detail);
+        }
+    }
+
+    private String describePeer() {
+        return connection().getRemoteAddress() + ":" + connection().getRemotePort();
     }
 }
