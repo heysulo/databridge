@@ -20,8 +20,9 @@ import io.netty.handler.logging.LoggingHandler;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GlobalEventExecutor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LongSummaryStatistics;
@@ -33,8 +34,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public abstract class Server {
 
-    public static final Duration DEFAULT_HANDSHAKE_TIMEOUT = Duration.ofSeconds(10);
-
+    private static final Logger LOGGER = LoggerFactory.getLogger(Server.class);
     private static final int MAX_PORT = 65535;
     private static final String BOSS_THREAD_NAME = "databridge-server-boss";
     private static final String WORKER_THREAD_NAME = "databridge-server-worker";
@@ -52,7 +52,6 @@ public abstract class Server {
     private EventLoopGroup workerGroup;
     private Channel listenerChannel;
     private Class<? extends ServerSocketChannel> channelType = NioServerSocketChannel.class;
-    private volatile Duration handshakeTimeout = DEFAULT_HANDSHAKE_TIMEOUT;
 
     protected Server(int port, ServerCallback callback) {
         this(port, callback, null, null);
@@ -114,21 +113,6 @@ public abstract class Server {
         return totalMessages.get();
     }
 
-    public Duration getHandshakeTimeout() {
-        return handshakeTimeout;
-    }
-
-    /**
-     * Sets how long a new connection may take to complete the handshake before it is closed.
-     */
-    public void setHandshakeTimeout(Duration handshakeTimeout) {
-        Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
-        if (handshakeTimeout.isZero() || handshakeTimeout.isNegative()) {
-            throw new IllegalArgumentException("Handshake timeout must be positive");
-        }
-        this.handshakeTimeout = handshakeTimeout;
-    }
-
     public void setChannelType(Class<? extends ServerSocketChannel> channelType) {
         this.channelType = Objects.requireNonNull(channelType, "channelType");
     }
@@ -178,6 +162,7 @@ public abstract class Server {
                 .bind(port)
                 .sync()
                 .channel();
+        LOGGER.info("Listening on port {}", port);
     }
 
     /**
@@ -200,6 +185,7 @@ public abstract class Server {
             workerGroup = null;
         }
         listenerChannel = null;
+        LOGGER.info("Stopped listening on port {}", port);
     }
 
     private static void awaitIf(boolean canWait, Future<?> future) throws InterruptedException {

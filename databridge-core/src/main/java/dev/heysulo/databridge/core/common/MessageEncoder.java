@@ -22,18 +22,17 @@ public class MessageEncoder extends MessageToByteEncoder<Message> {
     }
 
     @Override
-    protected void encode(ChannelHandlerContext channelHandlerContext, Message message, ByteBuf out) throws IOException {
+    protected void encode(ChannelHandlerContext context, Message message, ByteBuf out) throws IOException {
         int startIndex = out.writerIndex();
         out.writeInt(0); // Reserve 4 bytes for length prefix
 
-        ByteBufOutputStream bout = new ByteBufOutputStream(out);
-        ObjectOutputStream objOutputStream = new ObjectOutputStream(bout);
-        objOutputStream.writeObject(message);
-        objOutputStream.flush();
+        try (ObjectOutputStream objectOutput = new ObjectOutputStream(new ByteBufOutputStream(out))) {
+            objectOutput.writeObject(message); // Closing the stream leaves the buffer open
+        }
 
         int bodyLength = out.writerIndex() - startIndex - Integer.BYTES;
         if (bodyLength > maxFrameLength) {
-            throw new EncoderException("Message of " + bodyLength + " bytes exceeds max frame length " + maxFrameLength);
+            throw new EncoderException("Message of " + bodyLength + " bytes exceeds max frame " + maxFrameLength);
         }
         out.setInt(startIndex, bodyLength);
     }

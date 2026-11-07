@@ -143,7 +143,7 @@ public class MyClient {
 ## Security Metrics
 
 - **Trusted Packages**: By default, only `java.lang.*`, `dev.heysulo.**`, and a fixed set of common `java.util` collections and value types are allowed (see `MessageDecoder.DEFAULT_TRUSTED_PACKAGES`). Other `java.util` classes are rejected. Use `settings().addTrustedPackage()` on both the client and the server to allow your own domain classes.
-- **Handshake**: Until the handshake completes, only handshake messages of up to 4 KB are accepted, so unauthenticated peers cannot reach the trusted packages. Connections that do not finish within `Server.setHandshakeTimeout()` (10 seconds by default) are closed.
+- **Handshake**: Until the handshake completes, only handshake messages of up to 4 KB are accepted, so unauthenticated peers cannot reach the trusted packages. Connections that do not finish within `settings().setHandshakeTimeout()` (10 seconds by default) are closed, on both the client and the server.
 - **Deserialization Limits**: Every frame is limited in object depth, reference count, size, and array length. A frame that breaks these limits or the allowlist closes the connection.
 - **SSL**: Use `SecureServer` and pass an internal `SslContext` for encrypted communications. Clients check that the server certificate matches the address they connect to. `Client.setHostnameVerificationEnabled(false)` turns this off, but allows impersonation by anyone holding a trusted certificate.
 
@@ -152,3 +152,15 @@ public class MyClient {
 - `send()` queues the message and returns. Later failures, such as a message that cannot be serialized or exceeds the maximum frame length, are reported through `onError`.
 - `stop()` and `disconnect()` can be called from callbacks. There they return without waiting, and shutdown finishes after the callback returns.
 - Callbacks run on Netty event loops, so blocking in one delays every connection on that loop.
+
+## Logging
+
+DataBridge logs through [SLF4J](https://www.slf4j.org/), so add the binding of your choice to see its output. Lifecycle events are logged at `INFO`. Connections closed for protocol violations are logged at `WARN`, or at `DEBUG` if the peer never completed the handshake.
+
+## Development
+
+`mvn verify` builds the project, runs the tests, and runs Checkstyle and SpotBugs. The same command runs in CI on Java 17 and 21.
+
+## License
+
+DataBridge is licensed under the [Apache License, Version 2.0](LICENSE).

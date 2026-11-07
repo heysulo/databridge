@@ -29,6 +29,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
@@ -200,7 +201,8 @@ public class ProtocolHardeningTest {
         EmbeddedChannel channel = new EmbeddedChannel(new MessageDecoder(MessageDecoder.DEFAULT_TRUSTED_PACKAGES));
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
         try {
-            channel.writeInbound(Unpooled.wrappedBuffer(frame(serialize(nestedSets(MessageDecoder.MAX_OBJECT_DEPTH)))));
+            byte[] body = serialize(nestedSets(MessageDecoder.MAX_OBJECT_DEPTH));
+            channel.writeInbound(Unpooled.wrappedBuffer(frame(body)));
         } catch (DecoderException expected) {
             // Rejection is also acceptable: the point is that this returns quickly
         }
@@ -211,7 +213,7 @@ public class ProtocolHardeningTest {
     @Test(timeOut = 20_000)
     public void oversizedFrameIsRejectedBeforeHandshake() throws Exception {
         try (Socket socket = connect()) {
-            write(socket, ByteBuffer.allocate(Integer.BYTES).putInt(MessageDecoder.HANDSHAKE_MAX_FRAME_LENGTH + 1).array());
+            write(socket, lengthPrefix(MessageDecoder.HANDSHAKE_MAX_FRAME_LENGTH + 1));
             assertClosedByServer(socket);
         }
     }
@@ -236,7 +238,7 @@ public class ProtocolHardeningTest {
 
     @Test(timeOut = 20_000)
     public void silentConnectionIsClosedAtHandshakeTimeout() throws Exception {
-        server.setHandshakeTimeout(Duration.ofSeconds(1));
+        server.settings().setHandshakeTimeout(Duration.ofSeconds(1));
         try (Socket socket = connect()) {
             assertClosedByServer(socket);
         }
@@ -244,7 +246,7 @@ public class ProtocolHardeningTest {
 
     @Test(timeOut = 20_000)
     public void partialFrameDoesNotExtendHandshakeTimeout() throws Exception {
-        server.setHandshakeTimeout(Duration.ofSeconds(1));
+        server.settings().setHandshakeTimeout(Duration.ofSeconds(1));
         try (Socket socket = connect()) {
             write(socket, new byte[]{0});
             assertClosedByServer(socket);
@@ -253,7 +255,7 @@ public class ProtocolHardeningTest {
 
     @Test(timeOut = 20_000)
     public void completedHandshakeOutlivesHandshakeTimeout() throws Exception {
-        server.setHandshakeTimeout(Duration.ofSeconds(1));
+        server.settings().setHandshakeTimeout(Duration.ofSeconds(1));
         try (Socket socket = connect()) {
             handshake(socket);
             socket.setSoTimeout(1_500);
@@ -262,13 +264,28 @@ public class ProtocolHardeningTest {
     }
 
     @Test(timeOut = 20_000)
+    public void clientGivesUpWhenServerNeverAcknowledgesHandshake() throws Exception {
+        try (ServerSocket silentServer = new ServerSocket(0)) {
+            RecordingClientCallback callback = new RecordingClientCallback();
+            Client client = new Client("127.0.0.1", silentServer.getLocalPort(), callback, sharedGroup);
+            client.settings().setHandshakeTimeout(Duration.ofSeconds(1));
+            clients.add(client);
+            client.connect();
+
+            waitUntil(() -> !callback.errors.isEmpty(), "the client reports the timeout");
+            waitUntil(() -> !client.isConnected(), "the client closes the connection");
+            Assert.assertEquals(callback.connects.get(), 0);
+        }
+    }
+
+    @Test(timeOut = 20_000)
     public void invalidFrameLengthClosesEstablishedConnection() throws Exception {
         try (Socket socket = connect()) {
             handshake(socket);
-            write(socket, ByteBuffer.allocate(Integer.BYTES).putInt(-5).array());
+            write(socket, lengthPrefix(-5));
             assertClosedByServer(socket);
         }
-        waitUntil(() -> serverCallback.errors.stream().anyMatch(DecoderException.class::isInstance), "the error is reported");
+        waitForError(DecoderException.class);
     }
 
     @Test(timeOut = 20_000)
@@ -276,7 +293,7 @@ public class ProtocolHardeningTest {
         try (Socket socket = connect()) {
             handshake(socket);
             ByteArrayOutputStream burst = new ByteArrayOutputStream();
-            burst.write(ByteBuffer.allocate(Integer.BYTES).putInt(-5).array());
+            burst.write(lengthPrefix(-5));
             burst.write(frame(serialize(new TextMessage("after corruption"))));
             write(socket, burst.toByteArray());
             assertClosedByServer(socket);
@@ -301,7 +318,7 @@ public class ProtocolHardeningTest {
             write(socket, frame(serialize("plain string")));
             assertClosedByServer(socket);
         }
-        waitUntil(() -> serverCallback.errors.stream().anyMatch(IllegalStateException.class::isInstance), "the error is reported");
+        waitForError(IllegalStateException.class);
         Assert.assertEquals(serverCallback.messages.get(), 0);
     }
 
@@ -459,7 +476,7 @@ public class ProtocolHardeningTest {
 
     @Test(expectedExceptions = IllegalArgumentException.class)
     public void handshakeTimeoutMustBePositive() {
-        server.setHandshakeTimeout(Duration.ZERO);
+        server.settings().setHandshakeTimeout(Duration.ZERO);
     }
 
     private static HashSet<Object> nestedSets(int depth) {
@@ -514,6 +531,14 @@ public class ProtocolHardeningTest {
             output.writeObject(value);
         }
         return bytes.toByteArray();
+    }
+
+    private void waitForError(Class<? extends Throwable> type) throws InterruptedException {
+        waitUntil(() -> serverCallback.errors.stream().anyMatch(type::isInstance), "the error is reported");
+    }
+
+    private static byte[] lengthPrefix(int length) {
+        return ByteBuffer.allocate(Integer.BYTES).putInt(length).array();
     }
 
     private static byte[] frame(byte[] body) {

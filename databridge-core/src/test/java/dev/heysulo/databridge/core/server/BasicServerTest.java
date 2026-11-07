@@ -79,7 +79,8 @@ public class BasicServerTest {
     }
 
     private void awaitDisconnection(TestClientCallback clientCallback) throws InterruptedException {
-        waitUntil(() -> serverCallback.disconnected && clientCallback.disconnected, "both sides report the disconnection");
+        waitUntil(() -> serverCallback.disconnected && clientCallback.disconnected,
+                "both sides report the disconnection");
     }
 
     @Test

@@ -7,9 +7,6 @@ import dev.heysulo.databridge.core.common.Message;
 import dev.heysulo.databridge.core.common.ProtocolHandler;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.util.concurrent.ScheduledFuture;
-
-import java.util.concurrent.TimeUnit;
 
 final class ServerInboundHandler extends ProtocolHandler {
 
@@ -17,7 +14,6 @@ final class ServerInboundHandler extends ProtocolHandler {
 
     private final Server server;
     private RemoteConnection connection;
-    private ScheduledFuture<?> handshakeTimeoutTask;
 
     ServerInboundHandler(Server server) {
         super(server.settings(), HandshakeMessage.class);
@@ -33,8 +29,6 @@ final class ServerInboundHandler extends ProtocolHandler {
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
         connection = new RemoteConnection(ctx.channel());
         server.channelOpened(ctx.channel());
-        handshakeTimeoutTask = ctx.executor().schedule(
-                (Runnable) ctx::close, server.getHandshakeTimeout().toMillis(), TimeUnit.MILLISECONDS);
         super.channelActive(ctx);
     }
 
@@ -45,7 +39,6 @@ final class ServerInboundHandler extends ProtocolHandler {
                     .addListener(ChannelFutureListener.CLOSE);
             return;
         }
-        handshakeTimeoutTask.cancel(false);
         establish(ctx);
         server.connectionEstablished(connection);
         ctx.writeAndFlush(HandshakeAckMessage.accepted());
@@ -70,7 +63,6 @@ final class ServerInboundHandler extends ProtocolHandler {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        handshakeTimeoutTask.cancel(false);
         server.channelClosed(connection);
         super.channelInactive(ctx);
     }

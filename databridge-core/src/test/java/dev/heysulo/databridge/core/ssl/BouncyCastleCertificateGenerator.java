@@ -16,9 +16,12 @@ import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.Date;
 
-public class BouncyCastleCertificateGenerator {
+public final class BouncyCastleCertificateGenerator {
     static {
         Security.addProvider(new BouncyCastleProvider()); // Add Bouncy Castle provider
+    }
+
+    private BouncyCastleCertificateGenerator() {
     }
 
     public static KeyPair generateKeyPair() throws NoSuchAlgorithmException {

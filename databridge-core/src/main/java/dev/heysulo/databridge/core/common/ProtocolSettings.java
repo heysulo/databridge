@@ -11,10 +11,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class ProtocolSettings {
 
     public static final Duration DEFAULT_HEARTBEAT_INTERVAL = Duration.ofSeconds(30);
+    public static final Duration DEFAULT_HANDSHAKE_TIMEOUT = Duration.ofSeconds(10);
 
     private final List<String> trustedPackages = new CopyOnWriteArrayList<>(MessageDecoder.DEFAULT_TRUSTED_PACKAGES);
     private volatile int maxFrameLength = MessageDecoder.DEFAULT_MAX_FRAME_LENGTH;
     private volatile Duration heartbeatInterval = DEFAULT_HEARTBEAT_INTERVAL;
+    private volatile Duration handshakeTimeout = DEFAULT_HANDSHAKE_TIMEOUT;
 
     public void addTrustedPackage(String packagePattern) {
         trustedPackages.add(Objects.requireNonNull(packagePattern, "packagePattern"));
@@ -56,5 +58,20 @@ public final class ProtocolSettings {
             throw new IllegalArgumentException("Heartbeat interval must not be negative");
         }
         this.heartbeatInterval = heartbeatInterval;
+    }
+
+    public Duration getHandshakeTimeout() {
+        return handshakeTimeout;
+    }
+
+    /**
+     * Sets how long a new connection may take to complete the handshake before it is closed.
+     */
+    public void setHandshakeTimeout(Duration handshakeTimeout) {
+        Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
+        if (handshakeTimeout.isZero() || handshakeTimeout.isNegative()) {
+            throw new IllegalArgumentException("Handshake timeout must be positive");
+        }
+        this.handshakeTimeout = handshakeTimeout;
     }
 }

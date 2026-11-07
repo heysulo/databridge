@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- settings() is the configuration API: callers are meant to change the object it returns. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP"/>
+        <Or>
+            <Class name="dev.heysulo.databridge.core.client.Client"/>
+            <Class name="dev.heysulo.databridge.core.server.Server"/>
+        </Or>
+        <Method name="settings"/>
+    </Match>
+    <!-- The initializer reads the owner's live settings, so that changes reach later connections. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+        <Class name="dev.heysulo.databridge.core.common.ProtocolChannelInitializer"/>
+    </Match>
+    <!-- Invalid arguments should fail at construction, and Server holds no secrets a finalizer could reach. -->
+    <Match>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+        <Class name="dev.heysulo.databridge.core.server.Server"/>
+    </Match>
+</FindBugsFilter>

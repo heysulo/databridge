@@ -6,10 +6,13 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class PingPongApp {
-    private static final Logger logger = LoggerFactory.getLogger(PingPongApp.class);
+public final class PingPongApp {
+    private static final Logger LOGGER = LoggerFactory.getLogger(PingPongApp.class);
     private static final int PORT = 9090;
     private static final int CLIENT_COUNT = 5;
+
+    private PingPongApp() {
+    }
 
     public static void main(String[] args) throws InterruptedException {
         PingPongServer server = new PingPongServer(PORT);
@@ -18,7 +21,7 @@ public class PingPongApp {
             try {
                 server.start();
             } catch (InterruptedException e) {
-                logger.error("Server interrupted", e);
+                LOGGER.error("Server interrupted", e);
             }
         }).start();
 
@@ -32,7 +35,7 @@ public class PingPongApp {
 
         // Keep running for a while
         Thread.sleep(20000); // Increased time to observe logs
-        logger.info("Shutting down application...");
+        LOGGER.info("Shutting down application...");
         server.stop();
         executor.shutdownNow();
     }
