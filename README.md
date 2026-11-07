@@ -147,6 +147,16 @@ public class MyClient {
 - **Deserialization Limits**: Every frame is limited in object depth, reference count, size, and array length. A frame that breaks these limits or the allowlist closes the connection.
 - **SSL**: Use `SecureServer` and pass an internal `SslContext` for encrypted communications. Clients check that the server certificate matches the address they connect to. `Client.setHostnameVerificationEnabled(false)` turns this off, but allows impersonation by anyone holding a trusted certificate.
 
+## Per-Connection Callbacks
+
+By default, events go to the callback given to the `Server` or `Client`. To give one connection its own handler, for example once you know which application it belongs to, install a `ConnectionCallback`:
+
+```java
+connection.setCallback(new MyApplicationHandler());
+```
+
+This works on both server-side connections and `Client`, and covers messages, errors, and disconnects from that point on. Pass `null` to restore the original callback.
+
 ## Error Handling
 
 - `send()` queues the message and returns. Later failures, such as a message that cannot be serialized or exceeds the maximum frame length, are reported through `onError`.

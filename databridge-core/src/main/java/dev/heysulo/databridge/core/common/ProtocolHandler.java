@@ -39,6 +39,12 @@ public abstract class ProtocolHandler extends ChannelInboundHandlerAdapter {
 
     protected abstract void onHandshake(ChannelHandlerContext ctx, Message handshake);
 
+    /**
+     * Called for every accepted application message, whichever callback it is delivered to.
+     */
+    protected void onMessageAccepted() {
+    }
+
     protected abstract void onMessage(Message message);
 
     protected abstract void onError(Throwable cause);
@@ -62,7 +68,7 @@ public abstract class ProtocolHandler extends ChannelInboundHandlerAdapter {
     protected final void rejectProtocolViolation(ChannelHandlerContext ctx, String reason) {
         logRejection("Closing connection to {}: {}", describePeer(), reason);
         ctx.close();
-        onError(new IllegalStateException(reason));
+        deliverError(new IllegalStateException(reason));
     }
 
     @Override
@@ -84,7 +90,7 @@ public abstract class ProtocolHandler extends ChannelInboundHandlerAdapter {
         } else if (frame instanceof HeartbeatMessage) {
             readHeartbeat(ctx, (HeartbeatMessage) frame);
         } else if (frame instanceof Message) {
-            onMessage((Message) frame);
+            deliverMessage((Message) frame);
         } else {
             rejectProtocolViolation(ctx, "Received a frame that is not a Message: " + frame.getClass().getName());
         }
@@ -140,7 +146,7 @@ public abstract class ProtocolHandler extends ChannelInboundHandlerAdapter {
             logRejection("Closing connection to {} after a decoding failure: {}", describePeer(), cause.toString());
             ctx.close(); // The inbound stream can no longer be trusted
         }
-        onError(cause);
+        deliverError(cause);
     }
 
     @Override
@@ -151,9 +157,37 @@ public abstract class ProtocolHandler extends ChannelInboundHandlerAdapter {
         }
         if (established) {
             LOGGER.debug("Connection to {} closed", describePeer());
-            onDisconnected();
+            deliverDisconnect();
         }
         super.channelInactive(ctx);
+    }
+
+    private void deliverMessage(Message message) {
+        onMessageAccepted();
+        ConnectionCallback callback = connection().getCallback();
+        if (callback != null) {
+            callback.onMessage(connection(), message);
+        } else {
+            onMessage(message);
+        }
+    }
+
+    private void deliverError(Throwable cause) {
+        ConnectionCallback callback = connection().getCallback();
+        if (callback != null) {
+            callback.onError(connection(), cause);
+        } else {
+            onError(cause);
+        }
+    }
+
+    private void deliverDisconnect() {
+        ConnectionCallback callback = connection().getCallback();
+        if (callback != null) {
+            callback.onDisconnect(connection());
+        } else {
+            onDisconnected();
+        }
     }
 
     // Peers that never authenticated stay at debug, so scanners cannot flood the logs

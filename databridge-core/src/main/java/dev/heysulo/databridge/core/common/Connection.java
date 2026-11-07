@@ -25,6 +25,12 @@ public interface Connection {
      */
     OptionalLong getLatencyMillis();
 
+    /**
+     * Routes this connection's events to {@code callback} instead of the server's or client's callback, which lets
+     * each connection have its own handler. Passing {@code null} restores the original callback.
+     */
+    void setCallback(ConnectionCallback callback);
+
     String getRemoteAddress();
 
     int getRemotePort();

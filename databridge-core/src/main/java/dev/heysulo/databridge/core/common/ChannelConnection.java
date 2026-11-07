@@ -17,6 +17,7 @@ public abstract class ChannelConnection implements Connection {
     private final int remotePort;
     private volatile ChannelHandlerContext context;
     private volatile OptionalLong latencyMillis = OptionalLong.empty();
+    private volatile ConnectionCallback callback;
 
     protected ChannelConnection(String remoteAddress, int remotePort) {
         this.remoteAddress = remoteAddress;
@@ -31,6 +32,15 @@ public abstract class ChannelConnection implements Connection {
 
     final void recordLatency(long millis) {
         this.latencyMillis = OptionalLong.of(millis);
+    }
+
+    final ConnectionCallback getCallback() {
+        return callback;
+    }
+
+    @Override
+    public void setCallback(ConnectionCallback callback) {
+        this.callback = callback;
     }
 
     @Override
