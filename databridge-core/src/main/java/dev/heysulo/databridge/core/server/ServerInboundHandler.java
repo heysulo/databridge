@@ -46,8 +46,12 @@ final class ServerInboundHandler extends ProtocolHandler {
     }
 
     @Override
-    protected void onMessage(Message message) {
+    protected void onMessageAccepted() {
         server.messageReceived();
+    }
+
+    @Override
+    protected void onMessage(Message message) {
         server.getCallback().onMessage(server, connection, message);
     }
 
