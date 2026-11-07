@@ -1,28 +1,29 @@
 package dev.heysulo.databridge.core.server.secure;
 
-import dev.heysulo.databridge.core.common.StandardChannelInitializer;
 import dev.heysulo.databridge.core.server.Server;
 import dev.heysulo.databridge.core.server.callback.ServerCallback;
-import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.ssl.SslContext;
+
+import java.util.Objects;
 
 public class SecureServer extends Server {
 
-    SslContext sslContext;
+    private final SslContext sslContext;
 
     public SecureServer(int port, ServerCallback callback, SslContext sslContext) {
-        super(port, callback);
-        this.sslContext = sslContext;
+        this(port, callback, sslContext, null, null);
+    }
+
+    public SecureServer(int port, ServerCallback callback, SslContext sslContext,
+                        EventLoopGroup bossGroup, EventLoopGroup workerGroup) {
+        super(port, callback, bossGroup, workerGroup);
+        this.sslContext = Objects.requireNonNull(sslContext, "sslContext");
     }
 
     @Override
-    public void start() throws InterruptedException {
-        ServerBootstrap bootstrap = new ServerBootstrap();
-        bootstrap.childHandler(new StandardChannelInitializer(this));
-        start(bootstrap);
-    }
-
-    public SslContext getSslContext() {
-        return sslContext;
+    protected void configureTransportSecurity(SocketChannel channel) {
+        channel.pipeline().addFirst(sslContext.newHandler(channel.alloc()));
     }
 }

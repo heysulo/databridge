@@ -27,8 +27,8 @@ public class SecureServerTest {
         int port = freePort();
         TestServerCallback serverCallback = new TestServerCallback();
         SecureServer server = new SecureServer(port, serverCallback, getServerSslContext());
-        server.addTrustedPackage("dev.heysulo.**");
-        server.addTrustedPackage("java.lang.**");
+        server.settings().addTrustedPackage("dev.heysulo.**");
+        server.settings().addTrustedPackage("java.lang.**");
         server.start();
 
         // Client Setup

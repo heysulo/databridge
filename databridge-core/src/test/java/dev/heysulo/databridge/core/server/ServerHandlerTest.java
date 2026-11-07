@@ -9,6 +9,7 @@ import io.netty.handler.timeout.IdleStateEvent;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 public class ServerHandlerTest {
@@ -16,27 +17,27 @@ public class ServerHandlerTest {
     @Test
     public void testHeartbeatSentOnScheduleEvenWhenRepliesKeepChannelBusy() {
         BasicServer server = new BasicServer(9000, new TestServerCallback());
-        server.setHeartbeatInterval(1);
+        server.settings().setHeartbeatInterval(Duration.ofSeconds(1));
         EmbeddedChannel channel = new EmbeddedChannel(new ServerInboundHandler(server));
         completeHandshake(channel);
 
         // A reply written just before the interval elapses must not postpone our own heartbeat
         channel.advanceTimeBy(900, TimeUnit.MILLISECONDS);
         channel.runScheduledPendingTasks();
-        channel.writeInbound(new HeartbeatMessage(1, false));
-        Assert.assertTrue(((HeartbeatMessage) channel.readOutbound()).isReply);
+        channel.writeInbound(HeartbeatMessage.request());
+        Assert.assertTrue(((HeartbeatMessage) channel.readOutbound()).isReply());
 
         channel.advanceTimeBy(100, TimeUnit.MILLISECONDS);
         channel.runScheduledPendingTasks();
         Object msg = channel.readOutbound();
         Assert.assertTrue(msg instanceof HeartbeatMessage);
-        Assert.assertFalse(((HeartbeatMessage) msg).isReply);
+        Assert.assertFalse(((HeartbeatMessage) msg).isReply());
     }
 
     @Test
     public void testNoHeartbeatBeforeHandshake() {
         BasicServer server = new BasicServer(9000, new TestServerCallback());
-        server.setHeartbeatInterval(1);
+        server.settings().setHeartbeatInterval(Duration.ofSeconds(1));
         EmbeddedChannel channel = new EmbeddedChannel(new ServerInboundHandler(server));
 
         channel.advanceTimeBy(5, TimeUnit.SECONDS);
@@ -48,7 +49,7 @@ public class ServerHandlerTest {
     @Test
     public void testHeartbeatsStopWhenChannelCloses() {
         BasicServer server = new BasicServer(9000, new TestServerCallback());
-        server.setHeartbeatInterval(1);
+        server.settings().setHeartbeatInterval(Duration.ofSeconds(1));
         EmbeddedChannel channel = new EmbeddedChannel(new ServerInboundHandler(server));
         completeHandshake(channel);
 
@@ -62,7 +63,7 @@ public class ServerHandlerTest {
     @Test
     public void testZeroIntervalDisablesHeartbeats() {
         BasicServer server = new BasicServer(9000, new TestServerCallback());
-        server.setHeartbeatInterval(0);
+        server.settings().setHeartbeatInterval(Duration.ofSeconds(0));
         EmbeddedChannel channel = new EmbeddedChannel(new ServerInboundHandler(server));
         completeHandshake(channel);
 
@@ -101,9 +102,7 @@ public class ServerHandlerTest {
         EmbeddedChannel channel = new EmbeddedChannel(handler);
         completeHandshake(channel);
 
-        long now = System.nanoTime();
-        HeartbeatMessage hb = new HeartbeatMessage(now, true);
-        channel.writeInbound(hb);
+        channel.writeInbound(HeartbeatMessage.replyTo(HeartbeatMessage.request()));
 
         Assert.assertNull(channel.readOutbound());
     }
@@ -115,15 +114,14 @@ public class ServerHandlerTest {
         EmbeddedChannel channel = new EmbeddedChannel(handler);
         completeHandshake(channel);
 
-        long now = System.nanoTime();
-        HeartbeatMessage hb = new HeartbeatMessage(now, false);
-        channel.writeInbound(hb);
+        HeartbeatMessage request = HeartbeatMessage.request();
+        channel.writeInbound(request);
 
         // Should reply
         Object msg = channel.readOutbound();
         Assert.assertTrue(msg instanceof HeartbeatMessage);
-        Assert.assertTrue(((HeartbeatMessage) msg).isReply);
-        Assert.assertEquals(((HeartbeatMessage) msg).timestamp, now);
+        Assert.assertTrue(((HeartbeatMessage) msg).isReply());
+        Assert.assertEquals(((HeartbeatMessage) msg).getTimestamp(), request.getTimestamp());
     }
 
     @Test
@@ -134,15 +132,15 @@ public class ServerHandlerTest {
         EmbeddedChannel channel = new EmbeddedChannel(handler);
 
         // Before handshake, callback.connected should not be true
-        Assert.assertFalse(callback.connected, "OnConnect should not be called before handshake");
+        Assert.assertFalse(callback.connected, "onConnect should not be called before handshake");
 
         HandshakeMessage handshake = new HandshakeMessage("client-1");
         channel.writeInbound(handshake);
 
         Object ack = channel.readOutbound();
         Assert.assertTrue(ack instanceof HandshakeAckMessage);
-        Assert.assertTrue(((HandshakeAckMessage) ack).success);
-        Assert.assertTrue(callback.connected, "OnConnect should be called after successful handshake");
+        Assert.assertTrue(((HandshakeAckMessage) ack).isSuccess());
+        Assert.assertTrue(callback.connected, "onConnect should be called after successful handshake");
     }
 
     @Test
@@ -178,10 +176,36 @@ public class ServerHandlerTest {
         BasicServer server = new BasicServer(9000, new TestServerCallback());
         EmbeddedChannel channel = new EmbeddedChannel(new ServerInboundHandler(server));
 
-        channel.writeInbound(new HeartbeatMessage(System.nanoTime(), false));
+        channel.writeInbound(HeartbeatMessage.request());
 
         Assert.assertFalse(channel.isActive(), "Heartbeats must not keep an unauthenticated connection alive");
         Assert.assertNull(channel.readOutbound());
+    }
+
+    @Test
+    public void testHandshakeRegistersConnection() {
+        TestServerCallback callback = new TestServerCallback();
+        BasicServer server = new BasicServer(9000, callback);
+        EmbeddedChannel channel = new EmbeddedChannel(new ServerInboundHandler(server));
+
+        completeHandshake(channel);
+
+        Assert.assertEquals(server.getConnections().size(), 1);
+        Assert.assertSame(callback.connectedClients.get(0), server.getConnections().iterator().next());
+
+        channel.close();
+        Assert.assertTrue(server.getConnections().isEmpty());
+    }
+
+    @Test
+    public void testHeartbeatReplyRecordsLatencyOnTheConnection() {
+        BasicServer server = new BasicServer(9000, new TestServerCallback());
+        EmbeddedChannel channel = new EmbeddedChannel(new ServerInboundHandler(server));
+        completeHandshake(channel);
+
+        channel.writeInbound(HeartbeatMessage.replyTo(HeartbeatMessage.request()));
+
+        Assert.assertTrue(server.getConnections().iterator().next().getLatencyMillis().isPresent());
     }
 
     private static void completeHandshake(EmbeddedChannel channel) {

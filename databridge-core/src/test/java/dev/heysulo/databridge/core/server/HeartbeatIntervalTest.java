@@ -5,6 +5,8 @@ import dev.heysulo.databridge.core.callback.TestServerCallback;
 import dev.heysulo.databridge.core.client.Client;
 import org.testng.annotations.Test;
 
+import java.time.Duration;
+
 import static dev.heysulo.databridge.core.TestSupport.freePort;
 import static dev.heysulo.databridge.core.TestSupport.waitUntil;
 
@@ -15,25 +17,25 @@ public class HeartbeatIntervalTest {
 
     @Test(timeOut = 20_000)
     public void serverMeasuresLatencyWhenClientHeartbeatsFaster() throws Exception {
-        assertBothSidesMeasure(2, 1);
+        assertBothSidesMeasure(Duration.ofSeconds(2), Duration.ofSeconds(1));
     }
 
     @Test(timeOut = 20_000)
     public void clientMeasuresLatencyWhenServerHeartbeatsFaster() throws Exception {
-        assertBothSidesMeasure(1, 2);
+        assertBothSidesMeasure(Duration.ofSeconds(1), Duration.ofSeconds(2));
     }
 
-    private static void assertBothSidesMeasure(int serverInterval, int clientInterval) throws Exception {
+    private static void assertBothSidesMeasure(Duration serverInterval, Duration clientInterval) throws Exception {
         int port = freePort();
         BasicServer server = new BasicServer(port, new TestServerCallback());
-        server.setHeartbeatInterval(serverInterval);
+        server.settings().setHeartbeatInterval(serverInterval);
         server.start();
         Client client = new Client("127.0.0.1", port, new TestClientCallback());
-        client.setHeartbeatInterval(clientInterval);
+        client.settings().setHeartbeatInterval(clientInterval);
         try {
             client.connect();
-            waitUntil(() -> server.getLatency() >= 0, "the server measures latency");
-            waitUntil(() -> client.getLatency() >= 0, "the client measures latency");
+            waitUntil(() -> server.getAverageLatencyMillis().isPresent(), "the server measures latency");
+            waitUntil(() -> client.getLatencyMillis().isPresent(), "the client measures latency");
         } finally {
             client.stop();
             server.stop();

@@ -3,20 +3,37 @@ package dev.heysulo.databridge.core.common;
 /**
  * Sent by the server in response to a HandshakeMessage to confirm compatibility.
  */
-public class HandshakeAckMessage implements Message {
+public final class HandshakeAckMessage implements Message {
     private static final long serialVersionUID = 1L;
+    private static final String ACCEPTED_MESSAGE = "OK";
 
-    public final int version;
-    public final boolean success;
-    public final String message;
+    private final int version;
+    private final boolean success;
+    private final String message;
 
-    public HandshakeAckMessage() {
-        this(HandshakeMessage.CURRENT_VERSION, true, "OK");
-    }
-
-    public HandshakeAckMessage(int version, boolean success, String message) {
-        this.version = version;
+    private HandshakeAckMessage(boolean success, String message) {
+        this.version = HandshakeMessage.CURRENT_VERSION;
         this.success = success;
         this.message = message;
+    }
+
+    public static HandshakeAckMessage accepted() {
+        return new HandshakeAckMessage(true, ACCEPTED_MESSAGE);
+    }
+
+    public static HandshakeAckMessage rejected(String reason) {
+        return new HandshakeAckMessage(false, reason);
+    }
+
+    public int getVersion() {
+        return version;
+    }
+
+    public boolean isSuccess() {
+        return success;
+    }
+
+    public String getMessage() {
+        return message;
     }
 }

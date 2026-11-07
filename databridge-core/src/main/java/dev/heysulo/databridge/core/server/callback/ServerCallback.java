@@ -1,15 +1,18 @@
 package dev.heysulo.databridge.core.server.callback;
 
-import dev.heysulo.databridge.core.client.Client;
+import dev.heysulo.databridge.core.common.Connection;
 import dev.heysulo.databridge.core.common.Message;
 import dev.heysulo.databridge.core.server.Server;
 
+/**
+ * Receives server events on a Netty event loop. Blocking here delays every connection on that loop.
+ */
 public interface ServerCallback {
-    public void OnConnect(Server server, Client client);
+    void onConnect(Server server, Connection connection);
 
-    public void OnDisconnect(Server server, Client client);
+    void onDisconnect(Server server, Connection connection);
 
-    public void OnMessage(Server server, Client client, Message msg);
+    void onMessage(Server server, Connection connection, Message message);
 
-    public void OnError(Server server, Client client, Throwable cause);
+    void onError(Server server, Connection connection, Throwable cause);
 }

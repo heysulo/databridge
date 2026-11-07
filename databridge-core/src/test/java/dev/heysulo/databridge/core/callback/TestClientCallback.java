@@ -15,22 +15,22 @@ public class TestClientCallback implements ClientCallback {
     public volatile boolean errorReceived = false;
 
     @Override
-    public void OnConnect(Client client) {
+    public void onConnect(Client client) {
         connected = true;
     }
 
     @Override
-    public void OnDisconnect(Client client) {
+    public void onDisconnect(Client client) {
         disconnected = true;
     }
 
     @Override
-    public void OnMessage(Client client, Message msg) {
+    public void onMessage(Client client, Message msg) {
         messageReceived.add(msg);
     }
 
     @Override
-    public void OnError(Client client, Throwable cause) {
+    public void onError(Client client, Throwable cause) {
         errorReceived = true;
     }
 
