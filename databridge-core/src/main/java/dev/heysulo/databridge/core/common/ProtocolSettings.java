@@ -12,11 +12,14 @@ public final class ProtocolSettings {
 
     public static final Duration DEFAULT_HEARTBEAT_INTERVAL = Duration.ofSeconds(30);
     public static final Duration DEFAULT_HANDSHAKE_TIMEOUT = Duration.ofSeconds(10);
+    // Netty's own default, so clients that never set it behave as before
+    public static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(30);
 
     private final List<String> trustedPackages = new CopyOnWriteArrayList<>(MessageDecoder.DEFAULT_TRUSTED_PACKAGES);
     private volatile int maxFrameLength = MessageDecoder.DEFAULT_MAX_FRAME_LENGTH;
     private volatile Duration heartbeatInterval = DEFAULT_HEARTBEAT_INTERVAL;
     private volatile Duration handshakeTimeout = DEFAULT_HANDSHAKE_TIMEOUT;
+    private volatile Duration connectTimeout = DEFAULT_CONNECT_TIMEOUT;
 
     public void addTrustedPackage(String packagePattern) {
         trustedPackages.add(Objects.requireNonNull(packagePattern, "packagePattern"));
@@ -73,5 +76,22 @@ public final class ProtocolSettings {
             throw new IllegalArgumentException("Handshake timeout must be positive");
         }
         this.handshakeTimeout = handshakeTimeout;
+    }
+
+    public Duration getConnectTimeout() {
+        return connectTimeout;
+    }
+
+    /**
+     * Sets how long a client waits for the transport to connect. A host that has gone away often drops connection
+     * attempts silently, so without a short timeout a client can wait this long before trying elsewhere. Ignored by
+     * servers.
+     */
+    public void setConnectTimeout(Duration connectTimeout) {
+        Objects.requireNonNull(connectTimeout, "connectTimeout");
+        if (connectTimeout.isZero() || connectTimeout.isNegative() || connectTimeout.toMillis() > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Connect timeout must be positive and at most Integer.MAX_VALUE ms");
+        }
+        this.connectTimeout = connectTimeout;
     }
 }

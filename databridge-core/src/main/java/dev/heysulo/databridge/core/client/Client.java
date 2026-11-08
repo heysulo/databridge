@@ -7,6 +7,7 @@ import dev.heysulo.databridge.core.common.ProtocolChannelInitializer;
 import dev.heysulo.databridge.core.common.ProtocolSettings;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
@@ -90,6 +91,7 @@ public class Client extends ChannelConnection {
         Channel channel = new Bootstrap()
                 .group(workerGroup)
                 .channel(NioSocketChannel.class)
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) settings.getConnectTimeout().toMillis())
                 .handler(new ProtocolChannelInitializer(
                         settings, this::configureTransportSecurity, () -> new ClientInboundHandler(this)))
                 .connect(getRemoteAddress(), getRemotePort())

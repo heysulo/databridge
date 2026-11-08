@@ -15,6 +15,17 @@ public class ProtocolSettingsTest {
         Assert.assertEquals(settings.getTrustedPackages(), MessageDecoder.DEFAULT_TRUSTED_PACKAGES);
         Assert.assertEquals(settings.getMaxFrameLength(), MessageDecoder.DEFAULT_MAX_FRAME_LENGTH);
         Assert.assertEquals(settings.getHeartbeatInterval(), ProtocolSettings.DEFAULT_HEARTBEAT_INTERVAL);
+        Assert.assertEquals(settings.getConnectTimeout(), ProtocolSettings.DEFAULT_CONNECT_TIMEOUT);
+    }
+
+    @Test
+    public void connectTimeoutMustBePositive() {
+        ProtocolSettings settings = new ProtocolSettings();
+        Assert.expectThrows(IllegalArgumentException.class, () -> settings.setConnectTimeout(Duration.ZERO));
+        Assert.expectThrows(IllegalArgumentException.class, () -> settings.setConnectTimeout(Duration.ofMillis(-1)));
+        Assert.expectThrows(IllegalArgumentException.class, () -> settings.setConnectTimeout(Duration.ofDays(30)));
+        settings.setConnectTimeout(Duration.ofMillis(500));
+        Assert.assertEquals(settings.getConnectTimeout(), Duration.ofMillis(500));
     }
 
     @Test(expectedExceptions = UnsupportedOperationException.class)
