@@ -1,5 +1,7 @@
 package dev.heysulo.databridge.core.common;
 
+import java.security.cert.Certificate;
+import java.util.List;
 import java.util.OptionalLong;
 
 /**
@@ -30,6 +32,21 @@ public interface Connection {
      * each connection have its own handler. Passing {@code null} restores the original callback.
      */
     void setCallback(ConnectionCallback callback);
+
+    /**
+     * Whether the connection is secured with TLS and its handshake has completed.
+     */
+    default boolean isSecure() {
+        return false;
+    }
+
+    /**
+     * Returns the certificates the peer presented during the TLS handshake, its own first, or an empty list if the
+     * connection is plain, the handshake has not completed, or the peer presented none (as a client need not).
+     */
+    default List<Certificate> getPeerCertificates() {
+        return List.of();
+    }
 
     String getRemoteAddress();
 
